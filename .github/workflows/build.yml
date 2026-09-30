@@ -1,4 +1,4 @@
-name: Build Multiplatform Desktop Apps
+name: Build Multiplatform Native Installers
 
 on:
   workflow_dispatch:
@@ -14,9 +14,9 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            asset_name: LocalMusicAndVideo-macOS.zip
+            asset_name: LocalMusicAndVideo-macOS.dmg
           - os: windows-latest
-            asset_name: LocalMusicAndVideo-Windows.zip
+            asset_name: LocalMusicAndVideo-Windows-Setup.exe
           - os: ubuntu-latest
             asset_name: LocalMusicAndVideo-Linux.tar.gz
 
@@ -47,17 +47,49 @@ jobs:
       - name: Build Desktop Application
         run: npm run build
 
-      - name: Compress Build Artifacts (macOS / Linux)
-        if: runner.os != 'Windows'
+      - name: Package macOS DMG
+        if: runner.os == 'macOS'
         run: |
           cd dist
-          tar -czvf ../${{ matrix.asset_name }} *
+          hdiutil create -volname "LocalMusicAndVideo" -srcfolder . -ov -format UDZO ../${{ matrix.asset_name }}
 
-      - name: Compress Build Artifacts (Windows)
+      - name: Package Windows Setup Wizard (Inno Setup)
         if: runner.os == 'Windows'
         shell: powershell
         run: |
-          Compress-Archive -Path "dist\*" -DestinationPath "${{ matrix.asset_name }}"
+          $iss = @"
+          [Setup]
+          AppName=LocalMusicAndVideo
+          AppVersion=1.0
+          DefaultDirName={userappdata}\LocalMusicAndVideo
+          OutputDir=.
+          OutputBaseFilename=LocalMusicAndVideo-Windows-Setup
+          Compression=lzma
+          SolidCompression=yes
+          PrivilegesRequired=lowest
+          SetupIconFile=compiler:SetupClassicIcon.ico
+          
+          [Tasks]
+          Name: "desktopicon"; Description: "Create a desktop shortcut"; GroupDescription: "Additional icons:"
+
+          [Files]
+          Source: "dist\*"; DestDir: "{app}"; Flags: ignoreversion recursesubdirs createallsubdirs
+
+          [Icons]
+          Name: "{userdesktop}\LocalMusicAndVideo"; Filename: "{app}\LocalMusicAndVideo.exe"; Tasks: desktopicon
+          Name: "{userprograms}\LocalMusicAndVideo"; Filename: "{app}\LocalMusicAndVideo.exe"
+          
+          [Run]
+          Filename: "{app}\LocalMusicAndVideo.exe"; Description: "Launch LocalMusicAndVideo"; Flags: nowait postinstall skipifsilent
+          "@
+          $iss | Out-File -FilePath installer.iss -Encoding utf8
+          & "C:\Program Files (x86)\Inno Setup 6\ISCC.exe" installer.iss
+
+      - name: Package Linux Archive
+        if: runner.os == 'Linux'
+        run: |
+          cd dist
+          tar -czvf ../${{ matrix.asset_name }} *
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
