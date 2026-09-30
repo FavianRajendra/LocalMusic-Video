@@ -7,9 +7,13 @@ def run(*a): print("$", " ".join(map(str, a))); subprocess.check_call(list(map(s
 assert (R / "web_dist" / "index.html").exists(), "Run `npm run build`, not build.py directly."
 shutil.rmtree(B, ignore_errors=True); obf = B / "obf"
 run(sys.executable, "-m", "pyarmor.cli", "gen", "-O", obf, "-r", R / "main.py", R / "backend")
+
+# Added --hidden-import mimetypes to the PyInstaller arguments
 args = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", "LocalMusicAndVideo",
         "--windowed", "--paths", obf, "--distpath", R / "dist", "--workpath", B / "work", "--specpath", B,
+        "--hidden-import", "mimetypes",
         "--add-data", f"{R/'web_dist'}{sep}web_dist", "--add-data", f"{R/'scripts'}{sep}scripts"]
+
 for rt in obf.glob("pyarmor_runtime_*"): args += ["--add-data", f"{rt}{sep}{rt.name}"]
 run(*args, obf / "main.py")
 (R / "dist" / "downloads").mkdir(exist_ok=True)   # user-facing folder stays outside the bundle
