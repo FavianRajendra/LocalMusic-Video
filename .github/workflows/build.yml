@@ -1,4 +1,4 @@
-name: Build Multiplatform Native Installers & APK
+name: Build Multiplatform Native Installers
 
 on:
   workflow_dispatch:
@@ -6,9 +6,12 @@ on:
     tags:
       - 'v*'
 
+permissions:
+  contents: write
+
 jobs:
   build:
-    name: Build (${{ matrix.platform }})
+    name: Build (${{ matrix.os }})
     runs-on: ${{ matrix.os }}
     strategy:
       matrix:
@@ -22,9 +25,6 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             asset_name: LocalMusicAndVideo-Linux.tar.gz
-          - os: ubuntu-latest
-            platform: android
-            asset_name: LocalMusicAndVideo-Android.apk
 
     steps:
       - name: Checkout Code
@@ -36,20 +36,12 @@ jobs:
           node-version: '22'
           cache: 'npm'
 
-      - name: Setup Python (Desktop Only)
-        if: matrix.platform != 'android'
+      - name: Setup Python
         uses: actions/setup-python@v5
         with:
           python-version: '3.11'
 
-      - name: Setup Java (Android Only)
-        if: matrix.platform == 'android'
-        uses: actions/setup-java@v4
-        with:
-          distribution: 'zulu'
-          java-version: '17'
-
-      - name: Install System Dependencies (Linux Desktop)
+      - name: Install System Dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
           sudo apt-get update
@@ -58,8 +50,7 @@ jobs:
       - name: Install Project Dependencies
         run: npm install
 
-      - name: Build Web Assets & Desktop Application
-        if: matrix.platform != 'android'
+      - name: Build Desktop Application
         run: npm run build
 
       - name: Package macOS DMG
@@ -105,15 +96,6 @@ jobs:
         run: |
           cd dist
           tar -czvf ../${{ matrix.asset_name }} *
-
-      - name: Build Android APK (Capacitor)
-        if: matrix.platform == 'android'
-        run: |
-          npm run build
-          npx cap sync android
-          cd android
-          ./gradlew assembleDebug
-          cp app/build/outputs/apk/debug/app-debug.apk ../${{ matrix.asset_name }}
 
       - name: Upload Artifacts
         uses: actions/upload-artifact@v4
