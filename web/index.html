@@ -1,0 +1,23 @@
+<!doctype html><html lang="en"><head><meta charset="utf-8"><title>LocalMusic and Video</title>
+<meta name="viewport" content="width=device-width,initial-scale=1"><link rel="stylesheet" href="style.css"></head><body>
+<div id="lock"><div class="card"><h2>Set up your tools</h2>
+<p>LocalMusic and Video needs these installed before it can download.</p>
+<ul><li id="d-yt-dlp"><i></i>yt-dlp</li><li id="d-ffmpeg"><i></i>ffmpeg</li></ul>
+<button id="install">Install in Terminal</button><p class="hint" id="lockhint">Checking…</p></div></div>
+<aside><h1>Local<br>Music &amp;<br>Video</h1>
+<nav><button data-tab="quick" class="on">Quick download</button><button data-tab="vault">Vault</button></nav></aside>
+<main>
+<section id="quick" class="tab on"><h2>Quick download</h2>
+<input id="url" placeholder="Paste a video or playlist link">
+<div class="row"><div class="seg"><button data-m="audio" class="on">Audio</button><button data-m="video">Video</button></div>
+<select id="fmt"></select></div>
+<div class="row"><input id="dest" readonly><button id="pick" class="ghost">Choose folder</button></div>
+<label class="chk"><input type="checkbox" id="track"> Keep this playlist in the Vault</label>
+<div id="est" class="est"></div>
+<button id="go" class="primary">Download</button></section>
+<section id="vault" class="tab"><div class="row between"><h2>Vault</h2><button id="syncall" class="primary sm">Sync all</button></div>
+<div id="pls"></div></section>
+<div id="prog"><div class="bar"><b id="fill"></b></div><div id="pinfo">Idle</div></div>
+</main>
+<footer><button id="ctoggle">Console</button><pre id="console"></pre></footer>
+<script src="app.js"></script></body></html>

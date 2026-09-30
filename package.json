@@ -1,0 +1,13 @@
+{
+  "name": "localmusic-and-video",
+  "version": "2.0.0",
+  "private": true,
+  "type": "module",
+  "scripts": {
+    "postinstall": "node scripts/py.mjs -c \"print('python env ready')\"",
+    "dev": "concurrently -k -n web,app \"vite --port 5173 --strictPort\" \"wait-on tcp:5173 && node scripts/py.mjs main.py --dev\"",
+    "build": "vite build && node scripts/py.mjs build.py"
+  },
+  "dependencies": { "react": "^18.3.1", "react-dom": "^18.3.1" },
+  "devDependencies": { "@vitejs/plugin-react": "^4.3.1", "concurrently": "^9.0.1", "vite": "^5.4.0", "wait-on": "^8.0.0" }
+}
