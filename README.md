@@ -4,7 +4,7 @@
 
 **The ultimate open-source, cross-platform YouTube media downloader and 1:1 playlist synchronization app for macOS, Windows, and Linux.**
 
-[![GitHub Release](https://img.shields.io/badge/Release-v2.0.0-blue?style=for-the-badge)](https://github.com/YOUR_USERNAME/LocalMusicAndVideo/releases)
+[![GitHub Release](https://img.shields.io/badge/Release-v2.0.0-blue?style=for-the-badge)](https://github.com/FavianRajendra/LocalMusicAndVideo/releases)
 [![License](https://img.shields.io/badge/License-MIT-green?style=for-the-badge)](LICENSE)
 [![Platform](https://img.shields.io/badge/Platform-macOS%20%7C%20Windows%20%7C%20Linux-lightgrey?style=for-the-badge)]()
 
@@ -18,8 +18,7 @@
 > 
 > As an independent developer relying on open source, **I genuinely need your support to keep this project alive and free from ads, telemetry, or paywalls.** If this app saved you time, built your dream music library, or replaced a clunky web downloader, **please consider buying me a coffee!** Every single dollar helps cover server costs, development tools, and caffeine to power future updates. 💛
 
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate%20Now-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/YOUR_USERNAME)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Me-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/YOUR_USERNAME)
+[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate%20Now-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://buymeacoffee.com/favianrajed)
 
 ---
 
@@ -73,15 +72,21 @@ Most YouTube downloaders force you to copy-paste URLs every single time you want
 
 ### Quick Start
 1. Clone the repository:
-   git clone https://github.com/YOUR_USERNAME/LocalMusicAndVideo.git
+   ```bash
+   git clone [https://github.com/FavianRajendra/LocalMusicAndVideo.git](https://github.com/FavianRajendra/LocalMusicAndVideo.git)
    cd LocalMusicAndVideo
+   ```
 
 2. Install dependencies:
+   ```bash
    npm install
+   ```
 
 3. Start the development server:
+   ```bash
    npm run dev
-   (This concurrently launches the Vite React frontend on port 5173 and boots the Python backend process with hot reloading.)
+   ```
+   *(This concurrently launches the Vite React frontend on port 5173 and boots the Python backend process with hot reloading.)*
 
 ---
 
@@ -89,7 +94,9 @@ Most YouTube downloaders force you to copy-paste URLs every single time you want
 
 To build signed/bundled binaries locally:
 
+```bash
 npm run build
+```
 
 The build pipeline will:
 1. Minify web assets via Vite.
@@ -107,6 +114,7 @@ This repository includes `.github/workflows/build.yml`. Simply push code or trig
 
 ## 📂 Project Architecture
 
+```text
 LocalMusicAndVideo/
 ├── .github/workflows/   # Automated CI/CD build actions
 ├── backend/
@@ -117,28 +125,3 @@ LocalMusicAndVideo/
 ├── build.py             # Packaging pipeline (Minify + PyArmor + PyInstaller)
 ├── package.json         # NPM scripts and dev environment orchestration
 └── main.py              # Application entry point (pywebview bridge)
-
----
-
-## 📜 License & Disclaimer
-
-This project is licensed under the **MIT License**.
-
-*Disclaimer: This tool is strictly intended for personal media backup and archival of content you own or have explicit permission to download. Please respect creators and platform terms of service.*
-
----
-
-<div align="center">
-
-### 💖 Enjoying LocalMusic and Video? Keep it alive!
-
-Making an app like this requires ongoing maintenance every time YouTube updates its backend. **Because I rely on project donations to sustain my work and cover living expenses, your generosity directly decides how long this tool remains active.**
-
-If **LocalMusic and Video** saved you from monthly streaming subscriptions or clunky web converters, **please take 10 seconds to buy me a coffee.** Every single donation, no matter how small, means the world to me and keeps the code flowing!
-
-[![Buy Me A Coffee](https://img.shields.io/badge/Buy%20Me%20A%20Coffee-Donate%20Now-FFDD00?style=for-the-badge&logo=buy-me-a-coffee&logoColor=black)](https://www.buymeacoffee.com/YOUR_USERNAME)
-[![Ko-fi](https://img.shields.io/badge/Ko--fi-Support%20Me-FF5E5B?style=for-the-badge&logo=ko-fi&logoColor=white)](https://ko-fi.com/YOUR_USERNAME)
-
-**Thank you so much for supporting open-source software! 🙏**
-
-</div>
