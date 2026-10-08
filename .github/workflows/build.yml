@@ -11,9 +11,10 @@ permissions:
 
 jobs:
   build:
-    name: Build (${{ matrix.os }})
+    name: Build (${{ matrix.platform }})
     runs-on: ${{ matrix.os }}
     strategy:
+      fail-fast: false # Prevents one OS failure from canceling the others
       matrix:
         include:
           - os: macos-latest
@@ -25,6 +26,9 @@ jobs:
           - os: ubuntu-latest
             platform: linux
             asset_name: LocalMusicAndVideo-Linux.tar.gz
+          - os: ubuntu-latest
+            platform: android
+            asset_name: LocalMusicAndVideo-Android.apk
 
     steps:
       - name: Checkout Code
@@ -41,6 +45,13 @@ jobs:
         with:
           python-version: '3.11'
 
+      - name: Setup Java for Android
+        if: matrix.platform == 'android'
+        uses: actions/setup-java@v4
+        with:
+          distribution: 'temurin'
+          java-version: '21'
+
       - name: Install System Dependencies (Linux)
         if: matrix.platform == 'linux'
         run: |
@@ -51,7 +62,14 @@ jobs:
         run: npm install
 
       - name: Build Desktop Application
+        if: matrix.platform != 'android'
         run: npm run build
+
+      - name: Build Android APK
+        if: matrix.platform == 'android'
+        run: |
+          npm run build:apk
+          find . -name "*.apk" -type f -exec cp {} ./${{ matrix.asset_name }} \;
 
       - name: Package macOS DMG
         if: matrix.platform == 'macos'
