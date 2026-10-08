@@ -8,10 +8,11 @@ def conn():
 def init():
     with conn() as c:
         c.execute("""CREATE TABLE IF NOT EXISTS playlists(id INTEGER PRIMARY KEY, name TEXT, url TEXT UNIQUE,
-            path TEXT, last_synced TEXT, media TEXT, fmt TEXT, cover TEXT, custom_cover INTEGER DEFAULT 0)""")
-        for col in ("cover TEXT", "custom_cover INTEGER DEFAULT 0"):
+            path TEXT, last_synced TEXT, media TEXT, fmt TEXT, cover TEXT, custom_cover INTEGER DEFAULT 0, remote_path TEXT)""")
+        for col in ("cover TEXT", "custom_cover INTEGER DEFAULT 0", "remote_path TEXT", "last_added TEXT"):
             try: c.execute(f"ALTER TABLE playlists ADD COLUMN {col}")
             except sqlite3.OperationalError: pass
+        c.execute("CREATE TABLE IF NOT EXISTS skips(pid INTEGER, vid TEXT, PRIMARY KEY(pid, vid))")
         c.execute("CREATE TABLE IF NOT EXISTS settings(k TEXT PRIMARY KEY, v TEXT)")
 
 def get_setting(k, d=None):
@@ -42,8 +43,23 @@ def set_cover(pid, data_uri):
 def set_auto_cover(pid, data_uri):
     with conn() as c: c.execute("UPDATE playlists SET cover=? WHERE id=? AND custom_cover=0", (data_uri, pid))
 
+def set_remote_path(pid, path):
+    with conn() as c: c.execute("UPDATE playlists SET remote_path=? WHERE id=?", (path, pid))
+
 def remove_playlist(pid):
-    with conn() as c: c.execute("DELETE FROM playlists WHERE id=?", (pid,))
+    with conn() as c:
+        c.execute("DELETE FROM playlists WHERE id=?", (pid,)); c.execute("DELETE FROM skips WHERE pid=?", (pid,))
 
 def touch(pid):
     with conn() as c: c.execute("UPDATE playlists SET last_synced=? WHERE id=?", (time.strftime("%Y-%m-%d %H:%M"), pid))
+
+def touch_added(pid):
+    with conn() as c: c.execute("UPDATE playlists SET last_added=? WHERE id=?", (time.strftime("%Y-%m-%d %H:%M:%S"), pid))
+
+def get_skips(pid):
+    with conn() as c: return {r["vid"] for r in c.execute("SELECT vid FROM skips WHERE pid=?", (pid,))}
+
+def set_skips(pid, skip, unskip):
+    with conn() as c:
+        c.executemany("INSERT OR IGNORE INTO skips VALUES(?,?)", [(pid, v) for v in skip])
+        c.executemany("DELETE FROM skips WHERE pid=? AND vid=?", [(pid, v) for v in unskip])

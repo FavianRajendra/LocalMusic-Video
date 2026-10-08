@@ -7,18 +7,21 @@
     "postinstall": "node scripts/py.mjs -c \"print('python env ready')\"",
     "dev": "concurrently -k -n web,app \"vite --port 5173 --strictPort\" \"wait-on tcp:5173 && node scripts/py.mjs main.py --dev\"",
     "build": "vite build && node scripts/py.mjs build.py",
-    "dev:android": "npx cap run android",
-    "build:apk:debug": "vite build && npx cap sync android && cd android && ./gradlew assembleDebug",
-    "build:apk": "vite build && npx cap sync android && cd android && ./gradlew assembleRelease"
+    "dev:android": "node scripts/android-setup.mjs && concurrently -k -n web,android \"vite --host --port 5173 --strictPort\" \"wait-on tcp:5173 && npx cap run android -l --external --port 5173\"",
+    "build:apk": "vite build && node scripts/android-setup.mjs && npx cap sync android && node scripts/gradle.mjs assembleRelease",
+    "build:apk:debug": "vite build && node scripts/android-setup.mjs && npx cap sync android && node scripts/gradle.mjs assembleDebug"
   },
   "dependencies": {
     "react": "^18.3.1",
-    "react-dom": "^18.3.1"
+    "react-dom": "^18.3.1",
+    "@capacitor/core": "^6.1.2",
+    "@capacitor/android": "^6.1.2"
   },
   "devDependencies": {
     "@vitejs/plugin-react": "^4.3.1",
     "concurrently": "^9.0.1",
     "vite": "^5.4.0",
-    "wait-on": "^8.0.0"
+    "wait-on": "^8.0.0",
+    "@capacitor/cli": "^6.1.2"
   }
 }

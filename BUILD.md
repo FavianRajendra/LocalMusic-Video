@@ -1,26 +1,33 @@
-# Building the Mac and Windows apps
+# Building LocalMusic and Video
 
-PyInstaller cannot cross-compile: build the `.app` on a Mac and the `.exe` on Windows
-(or let GitHub Actions do both, see the end).
+One tag, four apps: `git tag v1.0.0 && git push --tags` makes GitHub Actions build and attach
+**macOS .dmg, Windows .exe, Linux .tar.gz and Android .apk** to the Release (see `.github/workflows/build.yml`).
 
-## One-time setup (each machine)
-- Node.js 18+ (https://nodejs.org) and Python 3.10+ (https://python.org, tick "Add to PATH" on Windows)
-- `npm install`   (also creates `.venv` and installs PyInstaller, PyArmor, pywebview, mutagen)
+## Desktop (macOS / Windows / Linux), built on each OS
+Needs Node 18+ and Python 3.10+.
 
-## Build
-    npm run build
-Steps: Vite minifies the UI into `web_dist/` -> PyArmor obfuscates the Python -> PyInstaller packages.
+    npm install          # JS deps + .venv (pywebview, PyInstaller, PyArmor, yt-dlp, imageio-ffmpeg ...)
+    npm run build        # vite minify -> PyArmor obfuscate -> PyInstaller -> self-test
+    npm run build -- --onefile     # Windows only: a single .exe
 
-## Output
-- macOS:   `dist/LocalMusicAndVideo.app`
-- Windows: `dist/LocalMusicAndVideo/LocalMusicAndVideo.exe` (keep the whole folder together)
-`data.db` and `downloads/` are created next to the app (or in `~/LocalMusicAndVideo` if that place is read-only).
+`yt-dlp` (official standalone binary, downloaded at build time) and `ffmpeg` (via imageio-ffmpeg) are bundled, so users install nothing.
+`data.db` and `downloads/` are created next to the app, outside the bundle.
+Linux: `pip install "pywebview[qt]"` into the .venv first (the CI does this); users need the usual Qt/X11 libraries.
+macOS: unsigned - right-click > Open the first time, or `xattr -cr LocalMusicAndVideo.app`.
 
-## Running the built app
-- macOS (unsigned): right-click the app > Open > Open. If macOS says it is damaged: `xattr -cr LocalMusicAndVideo.app`.
-  Build on Apple Silicon for M-series Macs, on an Intel Mac for Intel.
-- Windows: SmartScreen may warn: More info > Run anyway. Needs the WebView2 runtime (already in Windows 10/11).
-- End users still need yt-dlp and ffmpeg; the app installs them via Homebrew (Mac) or winget (Windows).
+## Android
+Needs JDK 17 + the Android SDK (`ANDROID_HOME`).
 
-## Both platforms via GitHub
-Push the project to GitHub, open Actions > "Build apps" > Run workflow. Download the Mac and Windows artifacts.
+    npm run dev:android        # emulator/device, live reload
+    npm run build:apk:debug    # installable APK  -> dist/android/
+    npm run build:apk          # unsigned release APK (sign with your own keystore)
+
+The APK contains the real yt-dlp + FFmpeg (youtubedl-android). Finished files are published to the public
+`Music/<Playlist>/` (audio) or `Movies/<Playlist>/` (video) folders through MediaStore, so Poweramp sees them.
+Android 10+, portrait only. A foreground service keeps downloads running with the screen off (allow notifications when asked).
+
+## Lyrics (desktop + Android)
+LRCLIB supplies the lyrics (synced when available). Japanese kana, Korean Hangul, and (with the optional romanizers) kanji/hanzi can get
+romaji/pinyin lines, and an English translation can be added (Google Translate's unofficial endpoint, off by default).
+Desktop bundles `pykakasi` + `pypinyin`. For Android, `npm run build:apk` tries to vendor them into the APK (needs internet once; if it
+can't, kana/Hangul/translation still work). Synced `.lrc` files can only be saved next to a track in a folder you picked with Choose folder.

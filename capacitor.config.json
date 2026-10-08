@@ -1,5 +1,2 @@
-{
-  "appId": "com.localmusic.app",
-  "appName": "LocalMusicAndVideo",
-  "webDir": "dist"
-}
+{ "appId": "com.localmusic.video", "appName": "LocalMusic and Video", "webDir": "web_dist",
+  "server": { "androidScheme": "http", "cleartext": true } }

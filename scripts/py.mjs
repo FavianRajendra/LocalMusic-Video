@@ -1,4 +1,5 @@
 // Runs Python from a local .venv (created + populated on first use). Cross-platform.
+if (process.env.SKIP_PY) process.exit(0);
 import { existsSync } from "fs";
 import { spawnSync } from "child_process";
 const win = process.platform === "win32";

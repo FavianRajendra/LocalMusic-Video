@@ -1,5 +1,9 @@
 pywebview>=5.0
-pyinstaller>=6.0
-pyarmor>=8.5
+yt-dlp
+imageio-ffmpeg
 mutagen>=1.47
 certifi
+pyinstaller>=6.0
+pyarmor>=8.5
+pykakasi
+pypinyin
