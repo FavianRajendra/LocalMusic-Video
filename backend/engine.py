@@ -5,21 +5,26 @@ from .paths import scripts_dir, resource_dir
 
 # music NEVER pulls a video stream: only the audio-only stream is requested, then remuxed/converted
 _A = lambda *a: ["-f", "bestaudio", "-x", "--audio-format", *a]
-_V = lambda h, ext="mp4", extra="": ["-f", f"{extra}bv*[height<={h}]+ba/b[height<={h}]", "--merge-output-format", ext]
+# Sorting (-S) instead of height filters: a filter silently drops formats a site does not label with a height (X, Facebook, TikTok...).
+# Resolution first, then H.264/AAC so the result plays everywhere and merges into mp4 without trouble.
+_V = lambda h, ext="mp4": ["-f", "bv*+ba/b", "-S", f"res:{h},vcodec:h264,acodec:m4a", "--merge-output-format", ext]
 FORMATS = {
     "opus": _A("opus"), "mp3-320": _A("mp3", "--audio-quality", "320K"),
     "mp3-256": _A("mp3", "--audio-quality", "256K"), "mp3-128": _A("mp3", "--audio-quality", "128K"),
     "flac": _A("flac"), "m4a": _A("m4a"), "wav": _A("wav"), "ogg": _A("vorbis"),
     "2160": _V(2160), "1440": _V(1440),
-    "1080p60": ["-f", "bv*[height<=1080][fps>30]+ba/bv*[height<=1080]+ba/b", "--merge-output-format", "mp4"],
+    "1080p60": ["-f", "bv*+ba/b", "-S", "res:1080,fps,vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"],
     "1080": _V(1080), "720": _V(720), "480": _V(480),
     "best": ["-f", "bv*+ba/b", "--merge-output-format", "mkv"],
 }
 AUDIO = {"opus", "mp3-320", "mp3-256", "mp3-128", "flac", "m4a", "wav", "ogg"}
 SUB_LANGS = "en.*,-live_chat"
+# fallbacks when merging fails: a single ready-made file (no ffmpeg needed)
+FORMATS["_raw_video"] = ["-f", "b[ext=mp4]/b"]
+FORMATS["_any_video"] = ["-f", "b/w"]
 EXTS = {".opus", ".mp3", ".flac", ".m4a", ".mp4", ".mkv", ".webm", ".ogg", ".wav"}
-ERR_RE = re.compile(r"^ERROR: (?:\[[^\]]+\] )?([A-Za-z0-9_-]{6,}): (.*)$")
-ID_RE = re.compile(r"\[([A-Za-z0-9_-]{6,})\]\.\w+$")
+ERR_RE = re.compile(r"^ERROR: (?:\[[^\]]+\] )?([A-Za-z0-9_.-]{3,}): (.*)$")
+ID_RE = re.compile(r"\[([A-Za-z0-9_.-]{5,})\]\.\w+$")   # ids of any site (tweet ids, Vimeo ids, shortcodes ...)
 NOWIN = getattr(subprocess, "CREATE_NO_WINDOW", 0)
 
 def _fetch(url, timeout=15):
@@ -110,7 +115,7 @@ class Engine:
         ents = [e for e in (ents if is_pl else [d]) if e and e.get("id")]
         thumb = d.get("thumbnail") or ((d.get("thumbnails") or [{}])[-1].get("url")) or \
             (f"https://i.ytimg.com/vi/{ents[0]['id']}/hqdefault.jpg" if ents else "")
-        info = dict(title=d.get("title") or "Untitled", uploader=d.get("uploader") or d.get("channel") or "",
+        info = dict(site=str(d.get("extractor_key") or d.get("ie_key") or (ents[0].get("ie_key") if ents else "") or "").lower(), title=d.get("title") or "Untitled", uploader=d.get("uploader") or d.get("channel") or "",
                     thumbnail=thumb, count=len(ents), seconds=sum(e.get("duration") or 0 for e in ents),
                     is_playlist=is_pl)
         meta = {e["id"]: dict(title=e.get("title") or "", artist=re.sub(r"\s*-\s*Topic$", "", e.get("artist") or e.get("uploader") or e.get("channel") or "")) for e in ents}
@@ -249,6 +254,11 @@ class Engine:
             self._fix_lrc(dest); self._lyrics(dest, key)
         return rc, "\n".join(tail)
 
+    @staticmethod
+    def _archive_drop(archive, vid):
+        a = Path(archive)
+        if a.exists(): a.write_text("".join(l for l in a.read_text().splitlines(True) if l.split()[-1:] != [vid]))
+
     def _run_tracks(self, src_url, info, ids, dest, fmt, archive, key):
         """Download TRACK BY TRACK. A bad track (geo-block, rate limit, yt-dlp crash) is recorded and SKIPPED;
         the loop always moves on, so one failure can never abandon the rest of the playlist."""
@@ -262,14 +272,24 @@ class Engine:
             self._set(key, item=n, pct=0, current=dict(artist=m.get("artist", ""), title=m.get("title", "")))
             pos, ie = order[vid]
             turl = info.get("urls", {}).get(vid) or (f"https://www.youtube.com/watch?v={vid}" if ie == "youtube" else None)
-            try:
-                rc, tail = self._run(turl, dest, fmt, archive, key, per_track=True) if turl else \
-                           self._run(src_url, dest, fmt, archive, key, items=[pos], per_track=True)
-            except Exception as e:                       # e.g. yt-dlp could not even start
-                rc, tail = -1, str(e)
-            if self._stopped(key): return
+            fmts = [fmt] if fmt in AUDIO else [fmt, "_raw_video", "_any_video"]      # video: if format selection/merging fails, fall back to one ready-made file
+            for k, f in enumerate(fmts):
+                try:
+                    rc, tail = self._run(turl, dest, f, archive, key, per_track=True) if turl else \
+                               self._run(src_url, dest, f, archive, key, items=[pos], per_track=True)
+                except Exception as e:                   # e.g. yt-dlp could not even start
+                    rc, tail = -1, str(e)
+                if self._stopped(key): return
+                t = tr[vid]
+                if vid in self._local(dest): t["status"] = "done"; break
+                more = k + 1 < len(fmts) and re.search(r"requested format|no video formats|only images|conversion failed|ffmpeg|postprocessing|merg", f"{tail} {t.get('msg', '')}", re.I)
+                if not more: break
+                self._archive_drop(archive, vid)         # a failed step may already be recorded in the archive: the retry must not be skipped
+                if t["status"] == "error" and key in self.jobs: self.jobs[key]["errors"] = max(0, self.jobs[key]["errors"] - 1)
+                tr[vid] = dict(title=t.get("title", ""), artist=t.get("artist", ""), status="downloading", msg="")
+                self.log(f"Retrying {t.get('title') or vid} as a single ready-made file...")
             t = tr[vid]
-            if vid in self._local(dest): t["status"] = "done"; continue
+            if t["status"] == "done": continue
             if t["status"] != "error":                   # no ERROR line matched, but nothing was saved: still record it and move on
                 t.update(status="error", msg=self._friendly(tail.splitlines()[-1]) if tail.strip() else f"yt-dlp exited with code {rc}")
                 if key in self.jobs: self.jobs[key]["errors"] += 1

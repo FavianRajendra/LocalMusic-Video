@@ -40,6 +40,9 @@ class Api:
         db.set_cover(pid, f"data:{mime};base64," + base64.b64encode(Path(f).read_bytes()).decode()); return True
     def sync(self, pid): return eng.sync(pid)
     def sync_all(self): return eng.sync_all()
+    def open_url(self, url):
+        import webbrowser
+        if str(url).startswith(("https://", "http://")): webbrowser.open(url)
     def net_start(self): return net.start()
     def net_stop(self): net.stop()
     def net_state(self): return net.state()

@@ -69,4 +69,26 @@ edit("android/app/src/main/AndroidManifest.xml", (s) => {
   if (!s.includes("screenOrientation")) s = s.replace("<activity", '<activity android:screenOrientation="portrait"');             // portrait lock
   return s;
 });
+// Version: package.json is the single source. versionCode must grow with every release or Android refuses to install the update over the old app.
+const meta = JSON.parse(readFileSync("package.json", "utf8")), [vMa, vMi, vPa] = String(meta.version).split(/[.-]/).map((n) => parseInt(n) || 0);
+edit("android/app/build.gradle", (g) => {
+  g = g.replace(/versionCode\s+\d+/, `versionCode ${vMa * 10000 + vMi * 100 + vPa}`).replace(/versionName\s+"[^"]*"/, `versionName "${meta.version}"`);
+  // Release signing with YOUR fixed key (env KEYSTORE_FILE, KEYSTORE_PASSWORD, KEY_ALIAS, KEY_PASSWORD). Without them the build is unsigned/debug.
+  // An update only installs over an older version when both are signed with the same key.
+  if (!g.includes("signingConfigs")) {
+    g = g.replace(/(buildTypes\s*\{\s*release\s*\{)/, '$1\n            if (System.getenv("KEYSTORE_FILE")) { signingConfig signingConfigs.release }');
+    g = g.replace(/buildTypes\s*\{/, `signingConfigs {
+        release {
+            if (System.getenv("KEYSTORE_FILE")) {
+                storeFile file(System.getenv("KEYSTORE_FILE"))
+                storePassword System.getenv("KEYSTORE_PASSWORD")
+                keyAlias System.getenv("KEY_ALIAS")
+                keyPassword System.getenv("KEY_PASSWORD")
+            }
+        }
+    }
+    buildTypes {`);
+  }
+  return g;
+});
 console.log("Android project ready (portrait, MediaStore, yt-dlp + FFmpeg).");

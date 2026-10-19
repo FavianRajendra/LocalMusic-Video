@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { call, NATIVE } from "./bridge.js";
+import { AUTHOR, DONATE_URL, REPO_URL, VERSION } from "./config.js";
 import NetworkSync from "./NetworkSync.jsx";
 import { FORMATS, estimateMB, fmtSize } from "./formats.js";
 
@@ -17,7 +18,7 @@ const TABS = [["quick", "Quick Download"], ["vault", "Vault"], ["net", "Network 
 
 const STEPS = [
   ["Nothing to install", "yt-dlp and ffmpeg are built into the app. Just open it and paste a link."],
-  ["Paste a link", "Drop in a video or playlist URL. The title, channel, thumbnail, track count and estimated total size appear instantly."],
+  ["Paste a link", "Drop in a video or playlist URL from YouTube, X, Facebook, Instagram, TikTok or any of 1000+ other sites. The title, channel, thumbnail, track count and estimated total size appear instantly."],
   ["Pick format and folder", "Choose Opus, MP3, FLAC, 4K and more. If the folder already has your music, those tracks are recognised and skipped."],
   ["Download, or add to the Vault", "Download grabs what's missing. In the Vault tab, Add to Vault links a folder to a playlist without downloading anything."],
   ["Keep it in sync", "Sync downloads new tracks and removes ones deleted online. Each playlist has its own progress bar and Stop button."],
@@ -45,8 +46,12 @@ function Guide({ onStart }) {
       </div>
       <h3>About</h3>
       <div className="glass stack small">
-        <p><b>LocalMusic and Video</b> · version 2.0</p>
-        <p className="mut">Built with React, Python and pywebview. Powered by yt-dlp, ffmpeg, mutagen and LRCLIB.</p>
+        <p><b>LocalMusic and Video</b> · version {VERSION} · made by <b>{AUTHOR}</b></p>
+        <div className="row wrap">
+          {DONATE_URL && <button className="primary" onClick={() => call("open_url", DONATE_URL)}>☕ Buy {AUTHOR} a coffee</button>}
+          {!REPO_URL.includes("YOUR_") && <button className="ghost" onClick={() => call("open_url", REPO_URL)}>Source code and updates</button>}
+        </div>
+        <p className="mut">Built with React, Python and pywebview. Powered by yt-dlp, FFmpeg, mutagen, LRCLIB, pykakasi and pypinyin.</p>
         <p className="mut">For personal use. You're responsible for respecting copyright and the terms of the sites you download from.</p>
       </div>
     </div>
@@ -81,6 +86,13 @@ function Source({ mode, busy, onDone }) {
   useEffect(() => { call("settings")?.then((s) => { setDest(s.dest); if (s.audio) setBases({ audio: s.audio, video: s.video }); }); }, []);
   useEffect(() => { if (NATIVE) setDest(bases[media]); }, [media, bases]);
   const [retry, setRetry] = useState(0), [updating, setUpdating] = useState(false);
+  const touched = useRef(false);   // the user chose Audio/Video themselves: do not override it
+  const [par, setPar] = useState("2"), [js, setJs] = useState(true);
+  useEffect(() => {
+    if (!NATIVE) return;
+    call("get_setting", "parallel").then((v) => v && setPar(v)).catch(() => {});
+    call("get_setting", "js_runtime").then((v) => setJs(v !== "0")).catch(() => {});
+  }, []);
   const [ly, setLy] = useState({ on: true, romaji: true, translate: false });
   useEffect(() => {
     Promise.all(["on", "romaji", "translate"].map((k) => call("get_setting", "lyrics_" + k)))
@@ -101,7 +113,11 @@ function Source({ mode, busy, onDone }) {
     if (!/^https?:\/\//.test(q)) return;
     let live = true; setLoading(true);
     call("inspect", q)
-      .then((r) => { if (live) setInfo(r); })
+      .then((r) => {
+        if (!live) return;
+        setInfo(r);   // a single video from a non-YouTube site (X, Facebook, TikTok ...) is almost always wanted as a video
+        if (r && !r.error && !r.is_playlist && r.site && !r.site.startsWith("youtube") && !touched.current) { setMedia("video"); setFmt("1080"); }
+      })
       .catch((e) => { if (live) setInfo({ error: String(e?.message || e) }); })
       .finally(() => { if (live) setLoading(false); });
     return () => { live = false; };
@@ -133,7 +149,7 @@ function Source({ mode, busy, onDone }) {
 
   return (
     <div className="glass stack">
-      <input className="field" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a video or playlist link" />
+      <input className="field" value={url} onChange={(e) => setUrl(e.target.value)} placeholder="Paste a link: YouTube, X, Facebook, Instagram, TikTok..." />
       {loading && <div className="skeleton" />}
       {info?.error && <p className="err">{info.error}</p>}
       {info?.error && NATIVE && <button className="ghost sm" disabled={updating} onClick={updateEngine}>{updating ? "Updating..." : "Update downloader and retry"}</button>}
@@ -152,7 +168,7 @@ function Source({ mode, busy, onDone }) {
       )}
       <div className="row">
         <div className="seg">{["audio", "video"].map((m) => (
-          <button key={m} className={media === m ? "on" : ""} onClick={() => { setMedia(m); setFmt(FORMATS[m][0][0]); }}>{m === "audio" ? "Audio" : "Video"}</button>
+          <button key={m} className={media === m ? "on" : ""} onClick={() => { touched.current = true; setMedia(m); setFmt(FORMATS[m][0][0]); }}>{m === "audio" ? "Audio" : "Video"}</button>
         ))}</div>
       </div>
       <div className="fmts">{FORMATS[media].map((x, i) => (
@@ -164,6 +180,16 @@ function Source({ mode, busy, onDone }) {
       {NATIVE && <p className="mut small">Tap Choose folder to save anywhere you like (internal storage or SD card); each playlist gets its own subfolder there. By default it goes to Music/ and Movies/.</p>}
       {mode === "quick" && <label className="chk"><input type="checkbox" checked={track} onChange={(e) => setTrack(e.target.checked)} /> Also keep in Vault</label>}
       {NATIVE && <label className="chk"><input type="checkbox" checked={heat} onChange={(e) => setHeatGuard(e.target.checked)} /> Pause downloads when the phone gets hot (recommended)</label>}
+      {NATIVE && (
+        <div className="lyr">
+          <b className="small">Speed</b>
+          <label className="chk">Downloads at once
+            <select className="field sel" value={par} onChange={(e) => { setPar(e.target.value); call("set_setting", "parallel", e.target.value); }}>
+              {["1", "2", "3"].map((n) => <option key={n} value={n}>{n}</option>)}</select></label>
+          <label className="chk"><input type="checkbox" checked={js} onChange={(e) => { setJs(e.target.checked); call("set_setting", "js_runtime", e.target.checked ? "1" : "0"); }} /> Use the built-in JavaScript runtime for YouTube (more formats, avoids throttling)</label>
+          <p className="mut small">More downloads at once is faster but warmer. The console shows how long each track took.</p>
+        </div>
+      )}
       {media === "audio" && (
         <div className="lyr">
           <b className="small">Lyrics</b>
@@ -375,6 +401,7 @@ export default function App() {
       <nav className="nav"><h1>LocalMusic<br />and Video</h1>
         {TABS.map(([k, l]) => <button key={k} className={"tabbtn" + (tab === k ? " on" : "")} onClick={() => setTab(k)}>{ICONS[k]}<span>{l}</span></button>)}
         <button className={"tabbtn minor" + (tab === "guide" ? " on" : "")} onClick={() => setTab("guide")}><span>Welcome &amp; guide</span></button>
+        {DONATE_URL && <button className="tabbtn minor sub" onClick={() => call("open_url", DONATE_URL)}><span>☕ Support {AUTHOR}</span></button>}
       </nav>
       <main key={tab}>
         {tab === "net" ? <NetworkSync jobs={jobs} /> : tab === "guide" ? <Guide onStart={start} /> : tab === "quick" ? <><h2>Quick download</h2><Source mode="quick" busy={ACTIVE(jobs.quick)} /></> : <Vault busy={st.busy} jobs={jobs} paused={!!st.paused} recent={st.recent || []} />}

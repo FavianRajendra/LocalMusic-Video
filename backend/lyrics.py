@@ -3,7 +3,7 @@
 LRCLIB lookup + romanization (Japanese kana AND kanji, Korean Hangul, Chinese hanzi) + optional English translation.
 Plain Python (stdlib). mutagen / pykakasi / pypinyin are used when installed. The desktop engine imports this module and the
 Android build concatenates it into a yt-dlp plugin, so both platforms behave identically."""
-import importlib.util, json, re, shutil, ssl, subprocess, unicodedata, urllib.error, urllib.parse, urllib.request
+import importlib.util, json, re, shutil, ssl, subprocess, time, unicodedata, urllib.error, urllib.parse, urllib.request
 from pathlib import Path
 
 UA = "LocalMusicAndVideo/2.0"
@@ -40,7 +40,7 @@ def http(url, data=None, timeout=12):
 def fetch(artist, title, duration=0):
     """LRCLIB lookup. Returns (result|None, reachable)."""
     def get(path, **q):
-        try: return json.loads(http("https://lrclib.net/api/" + path + "?" + urllib.parse.urlencode(q)))
+        try: return json.loads(http("https://lrclib.net/api/" + path + "?" + urllib.parse.urlencode(q), timeout=6))
         except urllib.error.HTTPError as e: return [] if e.code == 404 else None
         except Exception: return None
     if artist and duration:
@@ -226,7 +226,7 @@ def apply_to_file(f, opts, log=print, meta=None):
     """Find lyrics for the audio file `f`, add romaji/translation, write the .lrc sidecar (opts["sidecar"]) and embed them in the tags.
     meta = dict(artist, title, duration) when the caller knows them (yt-dlp info); otherwise they are read from the tags.
     Returns a short status ("offline" means: try again later)."""
-    f = Path(f)
+    f = Path(f); t0 = time.time()
     artist, title, dur = (meta["artist"], meta["title"], meta.get("duration") or 0) if meta else read_tags(f)
     artist, title = guess(artist, title)
     r, ok = fetch(artist, title, dur)
@@ -246,4 +246,4 @@ def apply_to_file(f, opts, log=print, meta=None):
         if lang in ("ja", "zh") and miss and HAN.search(body): log(f"Note: kanji/hanzi can't be romanized without {miss[0]} (kana and Hangul still are).")
         tags.append("romanized")
     if opts.get("translate") and lang: tags.append("translated")
-    return ", ".join(tags) or "nothing to add"
+    return (", ".join(tags) or "nothing to add") + f" ({time.time() - t0:.1f}s)"

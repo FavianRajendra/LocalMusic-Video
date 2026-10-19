@@ -163,3 +163,4 @@ main>*{flex-shrink:0}
 .lite main,.lite .glass,.lite .fmt,.lite .card,.lite .peer,.lite .step,.lite .job,.lite .meta,.lite .badge{animation:none}
 .lite .bar b.live,.lite .stage::before,.lite .lbl.live,.lite .dot.on,.lite .skeleton{animation:none}
 .lite .tabbtn,.lite .card,.lite .fmt,.lite .peer{transition:none}
+.tabbtn.minor.sub{margin-top:0}

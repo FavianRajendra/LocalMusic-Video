@@ -39,6 +39,7 @@ import java.net.URL;
 import java.text.SimpleDateFormat;
 import java.util.*;
 import java.util.concurrent.*;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.regex.*;
 import org.json.*;
 
@@ -50,19 +51,19 @@ import org.json.*;
  */
 @CapacitorPlugin(name = "LmvEngine")
 public class LmvEnginePlugin extends Plugin {
-    static final Pattern ID = Pattern.compile("\\[([A-Za-z0-9_-]{6,})\\]\\.\\w+$");
-    static final Pattern ERR = Pattern.compile("^ERROR: (?:\\[[^\\]]+\\] )?([A-Za-z0-9_-]{6,}): (.*)$", Pattern.MULTILINE);
+    static final Pattern ID = Pattern.compile("\\[([A-Za-z0-9_.-]{5,})\\]\\.\\w+$");
+    static final Pattern ERR = Pattern.compile("^ERROR: (?:\\[[^\\]]+\\] )?([A-Za-z0-9_.-]{3,}): (.*)$", Pattern.MULTILINE);
     static final Pattern SPEED = Pattern.compile("at\\s+(\\S+/s)");
     static final Set<String> AUDIO = new HashSet<>(Arrays.asList("opus", "mp3-320", "mp3-256", "mp3-128", "flac", "m4a", "wav", "ogg"));
     static final Map<String, String[]> FMT = new HashMap<>();
     /** Music: ONLY the audio stream is requested (-f bestaudio), then extracted/remuxed. No video is ever downloaded. */
     static String[] A(String... x) { List<String> l = new ArrayList<>(Arrays.asList("-f", "bestaudio", "-x", "--audio-format")); l.addAll(Arrays.asList(x)); return l.toArray(new String[0]); }
-    static String[] V(int h) { return new String[]{"-f", "bv*[height<=" + h + "]+ba/b[height<=" + h + "]", "--merge-output-format", "mp4"}; }
+    static String[] V(int h) { return new String[]{"-f", "bv*+ba/b", "-S", "res:" + h + ",vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"}; }   // resolution first, then H.264/AAC: plays everywhere, merges easily
     static {
         FMT.put("opus", A("opus")); FMT.put("mp3-320", A("mp3", "--audio-quality", "320K")); FMT.put("mp3-256", A("mp3", "--audio-quality", "256K"));
         FMT.put("mp3-128", A("mp3", "--audio-quality", "128K")); FMT.put("flac", A("flac")); FMT.put("m4a", A("m4a")); FMT.put("wav", A("wav")); FMT.put("ogg", A("vorbis"));
         FMT.put("2160", V(2160)); FMT.put("1440", V(1440)); FMT.put("1080", V(1080)); FMT.put("720", V(720)); FMT.put("480", V(480));
-        FMT.put("1080p60", new String[]{"-f", "bv*[height<=1080][fps>30]+ba/bv*[height<=1080]+ba/b", "--merge-output-format", "mp4"});
+        FMT.put("1080p60", new String[]{"-f", "bv*+ba/b", "-S", "res:1080,fps,vcodec:h264,acodec:m4a", "--merge-output-format", "mp4"});
         FMT.put("best", new String[]{"-f", "bv*+ba/b", "--merge-output-format", "mkv"});
     }
 
@@ -73,8 +74,8 @@ public class LmvEnginePlugin extends Plugin {
     static class Local { Uri uri; String name; boolean saf; }
     static class Info {
         String title, uploader, thumb; int count; double seconds; boolean isPl;
-        List<String[]> tracks = new ArrayList<>(); Map<String, String[]> meta = new HashMap<>(); Map<String, String> urls = new HashMap<>(); long at = System.currentTimeMillis();
-        JSONObject json() { return J("title", title, "uploader", uploader, "thumbnail", thumb, "count", count, "seconds", seconds, "is_playlist", isPl); }
+        List<String[]> tracks = new ArrayList<>(); Map<String, String[]> meta = new HashMap<>(); Map<String, String> urls = new HashMap<>(); long at = System.currentTimeMillis(); String site = "";
+        JSONObject json() { return J("title", title, "uploader", uploader, "thumbnail", thumb, "count", count, "seconds", seconds, "is_playlist", isPl, "site", site); }
     }
     static class Job {
         volatile String status = "queued", stage = "Queued", name = "", eta = "", speed = "", size = "", cArtist = "", cTitle = "";
@@ -85,7 +86,7 @@ public class LmvEnginePlugin extends Plugin {
                 "errors", errors, "auto", auto, "overall", overall, "current", cTitle.isEmpty() ? JSONObject.NULL : J("artist", cArtist, "title", cTitle));
         }
     }
-    static class Run { File tmp, meta, done, lyr; int mi, di, li, started; String rel; boolean video, alt, noLyrics; Map<String, T> tr; Job j; }
+    static class Run { File tmp, meta, done, lyr; int mi, di, li, started; String rel; boolean video, alt; volatile boolean noLyrics; final AtomicInteger fin = new AtomicInteger(); Map<String, T> tr; Job j; }
 
     // ---------------- database (app-private, like data.db on desktop) ----------------
     static class Db extends SQLiteOpenHelper {
@@ -237,7 +238,26 @@ public class LmvEnginePlugin extends Plugin {
         return sb.toString();
     }
     /** What to download when ffmpeg is out of the picture: audio as m4a (plays everywhere, tags can still be written), video as one ready-made file. */
-    static String[] rawArgs(boolean video) { return video ? new String[]{"-f", "b[ext=mp4]/b"} : new String[]{"-f", "bestaudio[ext=m4a]/bestaudio"}; }
+    static String[] rawArgs(boolean video, int vstep, int h) {
+        if (!video) return new String[]{"-f", "bestaudio[ext=m4a]/bestaudio"};
+        String cap = h > 0 ? "[height<=?" + h + "]" : "";
+        return vstep >= 2 ? new String[]{"-f", "b/w"} : new String[]{"-f", "b[ext=mp4]" + cap + "/b" + cap + "/b"};   // one ready-made file: no merging, no ffmpeg
+    }
+    static int heightOf(String fmt) { try { return Integer.parseInt(fmt); } catch (Exception e) { return "1080p60".equals(fmt) ? 1080 : 0; } }
+    static boolean fmtFail(String s) {
+        String m = s.toLowerCase(Locale.ROOT);
+        return m.contains("requested format is not available") || m.contains("no video formats") || m.contains("only images") || m.contains("merg") || convFail(s);
+    }
+    final AtomicInteger pidSeq = new AtomicInteger();
+    final Map<String, Set<String>> pids = new ConcurrentHashMap<>();   // job key -> ids of its live yt-dlp processes (several run in parallel)
+    volatile int vFloor = 0;       // video: once merging failed on this phone, later videos start without merging
+    volatile boolean jsBroken;     // this yt-dlp rejected the JavaScript-runtime options
+    static void bumpErr(Job j, int d) { synchronized (j) { j.errors = Math.max(0, j.errors + d); } }
+    synchronized void stepDown(int seen) { if (ppLevel == seen && ppLevel < 3) ppLevel++; }
+    void killAll(String key) { Set<String> ps = pids.get(key); if (ps != null) for (String p : new ArrayList<>(ps)) kill(p); }
+    int parallel() { try { return Math.max(1, Math.min(3, Integer.parseInt(String.valueOf(db.get("parallel"))))); } catch (Exception e) { return 2; } }
+    void again(Run r, T cur, String id) { if ("error".equals(cur.status)) bumpErr(r.j, -1); cleanLeftovers(r.tmp, id); }
+    void openUrl(String u) { Intent i = new Intent(Intent.ACTION_VIEW, Uri.parse(u)); i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK); getContext().startActivity(i); }
     boolean lyricsOn(Run r) { return lyricsReady && !r.noLyrics && !r.video && flag("lyrics_on", true) == 1; }
     /** The .lrc next to a track can only be stored in a folder you picked (MediaStore refuses non-audio files in Music/). */
     void importSidecar(File f, String rel) throws Exception {
@@ -259,7 +279,7 @@ public class LmvEnginePlugin extends Plugin {
             log("The phone is hot: pausing downloads until it cools down.");
             while (pm.getCurrentThermalStatus() >= 3 && !cancel.contains(key) && !heatOff()) { j.stage = "Cooling down - the phone is hot"; notifyService(); Thread.sleep(1000); }
             j.stage = "Downloading";
-        } else if (s == 2) Thread.sleep(4000);   // gentle pace while it is warm
+        } else if (s == 2) Thread.sleep(1000);   // gentle pace while it is warm
     }
 
     // ---------------- RPC bridge ----------------
@@ -282,6 +302,7 @@ public class LmvEnginePlugin extends Plugin {
             case "settings": return J("dest", label("audio"), "audio", label("audio"), "video", label("video"));
             case "reset_folder": { String k = kindOf(a.getString(0)); db.set("saf_" + k, ""); db.set("label_" + k, ""); return null; }
             case "update_ytdlp": return updateYtDlp(true);
+            case "open_url": openUrl(a.getString(0)); return null;
             case "force_run": thermalForce = true; log("Heat protection overridden: running anyway."); return null;
             case "flag": return "1".equals(db.get("flag_" + a.getString(0)));
             case "set_flag": db.set("flag_" + a.getString(0), "1"); return null;
@@ -485,7 +506,7 @@ public class LmvEnginePlugin extends Plugin {
     Info parse(String out) throws JSONException {
         JSONObject d = new JSONObject(out.substring(out.indexOf('{')));
         JSONArray ents = d.optJSONArray("entries"); boolean pl = ents != null; if (!pl) ents = new JSONArray().put(d);
-        Info i = new Info(); i.isPl = pl; i.title = d.optString("title", "Untitled"); i.uploader = first(d, "uploader", "channel");
+        Info i = new Info(); i.isPl = pl; i.title = d.optString("title", "Untitled"); i.uploader = first(d, "uploader", "channel"); i.site = first(d, "extractor_key", "ie_key").toLowerCase(Locale.ROOT);
         collect(ents, i);
         i.count = i.tracks.size();
         JSONArray th = d.optJSONArray("thumbnails");
@@ -621,12 +642,12 @@ public class LmvEnginePlugin extends Plugin {
             j = jobs.get(key); if (j == null) return false;
             if ("queued".equals(j.status)) { queue.removeIf(x -> x[0].equals(key)); j.status = "stopped"; j.stage = "Stopped"; return true; }
         }
-        if ("running".equals(j.status) || "paused".equals(j.status)) { cancel.add(key); log("Stopping " + j.name + "..."); kill(key); synchronized (gate) { gate.notifyAll(); } }
+        if ("running".equals(j.status) || "paused".equals(j.status)) { cancel.add(key); log("Stopping " + j.name + "..."); killAll(key); synchronized (gate) { gate.notifyAll(); } }
         return true;
     }
     void pause() {
         paused = true; List<String> ks; synchronized (lock) { ks = new ArrayList<>(jobs.keySet()); }
-        for (String k : ks) { Job j = job(k); if (j != null && "running".equals(j.status) && procs.contains(k)) { pausedKeys.add(k); j.status = "paused"; j.stage = "Pausing..."; kill(k); } }
+        for (String k : ks) { Job j = job(k); if (j != null && "running".equals(j.status) && pids.get(k) != null && !pids.get(k).isEmpty()) { for (String p : new ArrayList<>(pids.get(k))) { pausedKeys.add(p); kill(p); } j.status = "paused"; j.stage = "Pausing..."; } }
         log("Paused. Partial downloads are kept and continue on resume."); notifyService();
     }
     void resume() { paused = false; synchronized (gate) { gate.notifyAll(); } log("Resumed."); notifyService(); }
@@ -717,12 +738,12 @@ public class LmvEnginePlugin extends Plugin {
     }
     static String q(String s) { return "\"" + s + "\""; }
     /** One option per line in a yt-dlp config file: lets us repeat options and pass several arguments safely. */
-    File config(Run r, String fmt, File arc, int[] items, boolean alt) throws IOException {
+    File config(Run r, String fmt, File arc, int[] items, boolean alt, String tag, int vstep) throws IOException {
         int lv = ppLevel;
         List<String> c = new ArrayList<>(Arrays.asList("--ignore-errors", "--no-colors", "--no-quiet", "--no-simulate", "--newline"));
         if (lv < 2) c.add("--embed-metadata");
         if (lv < 1) c.add("--embed-thumbnail");
-        if (alt) { c.add("--js-runtimes quickjs"); c.add("--remote-components ejs:github"); }   // retry path for YouTube JS challenges
+        if ((alt || flag("js_runtime", true) == 1) && !jsBroken) { c.add("--js-runtimes quickjs"); c.add("--remote-components ejs:github"); }   // YouTube JavaScript challenges: more formats, no throttling
         if (r.video && lv < 1) { c.add("--write-subs"); c.add("--embed-subs"); c.add("--sub-langs \"en.*,-live_chat\""); }
         c.add("--print-to-file " + q("before_dl:%(id)s|%(artist,creator,uploader)s|%(track,title)s") + " " + q(r.meta.getAbsolutePath()));
         boolean pp = lyricsOn(r);
@@ -736,10 +757,10 @@ public class LmvEnginePlugin extends Plugin {
                 + ";sidecar=" + (isSaf(r.rel) ? 1 : 0) + ";log=" + r.lyr.getAbsolutePath() + ";done=" + r.done.getAbsolutePath() + ";tags=" + (lv >= 2 ? 1 : 0) + ";libs=" + new File(getContext().getFilesDir(), "pylibs").getAbsolutePath()));
         }
         c.add("-o " + q(r.tmp.getAbsolutePath() + "/%(title)s [%(id)s].%(ext)s"));
-        String[] f = lv >= 3 ? rawArgs(r.video) : FMT.get(fmt);
+        String[] f = r.video ? (vstep >= 1 ? rawArgs(true, vstep, heightOf(fmt)) : FMT.get(fmt)) : (lv >= 3 ? rawArgs(false, 0, 0) : FMT.get(fmt));
         for (int i = 0; i < f.length; i++) c.add(i + 1 < f.length && !f[i + 1].startsWith("-") ? f[i] + " " + q(f[++i]) : f[i]);
         if (items != null && items.length > 0) { StringBuilder sb = new StringBuilder(); for (int n : items) sb.append(sb.length() > 0 ? "," : "").append(n); c.add("--playlist-items " + sb); }
-        File cf = new File(r.tmp, "yt.conf");
+        File cf = new File(r.tmp, "yt-" + tag + ".conf");   // one per process: several run at the same time
         try (FileWriter w = new FileWriter(cf, false)) { for (String s : c) w.write(s + "\n"); }
         return cf;
     }
@@ -758,7 +779,7 @@ public class LmvEnginePlugin extends Plugin {
         Matcher m = ERR.matcher(msg);
         while (m.find()) {
             T t = r.tr.get(m.group(1)); if (t == null) { t = new T(); r.tr.put(m.group(1), t); }
-            if (!"error".equals(t.status)) r.j.errors++;
+            if (!"error".equals(t.status)) bumpErr(r.j, 1);
             t.status = "error"; t.msg = friendly(m.group(2));
         }
     }
@@ -797,96 +818,132 @@ public class LmvEnginePlugin extends Plugin {
     static String lastLine(String s) { String[] ls = s.trim().split("\n"); return ls[ls.length - 1]; }
     static String keyOf(Info i, String id) { for (String[] t : i.tracks) if (t[0].equals(id)) return t[1]; return ""; }
 
-    /** Downloads TRACK BY TRACK. A bad track (geo-block, rate limit, crash) is recorded and SKIPPED; the loop always
-     *  moves on, so one failure can never abandon the rest of the playlist. */
+    /** Downloads TRACK BY TRACK, several at a time (Speed: 1-3). A bad track (geo-block, rate limit, crash) is recorded and SKIPPED,
+     *  and the other tracks keep going, so one failure can never abandon the rest of a playlist. */
     void runTracks(String src, Info info, List<String> ids, String rel, String fmt, String key) throws Exception {
         if (!ready) throw new IOException(initError != null ? initError : "The engine is still starting. Try again in a moment.");
         Run r = new Run(); r.rel = rel; r.video = !AUDIO.contains(fmt); r.j = job(key); r.tr = tracks.get(key);
         r.tmp = new File(getContext().getFilesDir(), "dl/" + Integer.toHexString(rel.hashCode())); r.tmp.mkdirs();   // persistent, so .part files survive pause/resume
         r.meta = new File(r.tmp, "meta.txt"); r.done = new File(r.tmp, "done.txt"); r.lyr = new File(r.tmp, "lyrics.log"); r.meta.delete(); r.done.delete(); r.lyr.delete();
-        File arc = archive(rel); r.j.stage = "Downloading"; r.j.pct = 0; r.j.total = ids.size(); r.j.item = 0;
+        File arc = archive(rel); r.j.stage = "Downloading"; r.j.pct = 0; r.j.total = ids.size(); r.j.item = 1;
         Map<String, Integer> pos = new HashMap<>(); for (int k = 0; k < info.tracks.size(); k++) pos.put(info.tracks.get(k)[0], k + 1);
-        Set<String> retried = new HashSet<>();
+        Set<String> retried = ConcurrentHashMap.newKeySet();
         boolean[] halt = {false};
         Thread poller = new Thread(() -> { while (!halt[0]) { poll(r); notifyService(); try { Thread.sleep(1500); } catch (InterruptedException e) { return; } } });
         poller.start();
+        ExecutorService pool = Executors.newFixedThreadPool(ids.size() > 1 ? parallel() : 1);
         try {
-            for (int idx = 0; idx < ids.size(); idx++) {
-                if (cancel.contains(key)) break;
-                thermalGuard(r.j, key);
-                String id = ids.get(idx); String[] m = info.meta.get(id);
-                T t = new T(); if (m != null) { t.title = m[0]; t.artist = m[1]; } t.status = "downloading"; r.tr.put(id, t);
-                r.j.item = idx + 1; r.j.pct = 0; r.j.cTitle = t.title; r.j.cArtist = t.artist;
-                r.alt = retried.contains(id);
-                String turl = info.urls.get(id); int[] items = null;
-                if (turl == null) {
-                    if ("youtube".equals(keyOf(info, id))) turl = "https://www.youtube.com/watch?v=" + id;
-                    else { turl = src; items = new int[]{pos.get(id)}; }
+            List<Future<?>> fs = new ArrayList<>();
+            for (String id : ids) fs.add(pool.submit(() -> {
+                android.os.Process.setThreadPriority(android.os.Process.THREAD_PRIORITY_BACKGROUND);
+                try { track(r, info, src, id, pos.get(id), fmt, key, arc, retried, ids.size()); }
+                catch (InterruptedException ignored) {}
+                catch (Throwable t) { log("Unexpected error for " + id + ": " + t); android.util.Log.e("LocalMusicAndVideo", "track", t); }
+            }));
+            for (Future<?> f : fs) { try { f.get(); } catch (Exception ignored) {} }
+        } finally { pool.shutdownNow(); halt[0] = true; poller.interrupt(); poller.join(); poll(r); }
+    }
+
+    void finishTrack(Run r, String id, T cur, int total, long t0) {
+        r.fin.incrementAndGet(); r.j.item = Math.min(total, r.fin.get() + 1);
+        if ("done".equals(cur.status))   // how long it really took: shows whether the time goes into the download, the conversion or the lyrics
+            log(String.format(Locale.US, "Saved %s in %.1fs%s", cur.title.isEmpty() ? id : cur.title, (System.currentTimeMillis() - t0) / 1000.0, r.j.speed.isEmpty() ? "" : " (" + r.j.speed + ")"));
+        cleanLeftovers(r.tmp, id);   // thumbnails and other leftovers must not pile up
+    }
+
+    /** One track, with every fallback: lyrics plugin, JS options, ffmpeg steps, video without merging, JS runtime, leftover files. */
+    void track(Run r, Info info, String src, String id, int position, String fmt, String key, File arc, Set<String> retried, int total) throws Exception {
+        long t0 = System.currentTimeMillis(); String[] m = info.meta.get(id);
+        String turl = info.urls.get(id); int[] items = null;
+        if (turl == null) {
+            if ("youtube".equals(keyOf(info, id))) turl = "https://www.youtube.com/watch?v=" + id;
+            else { turl = src; items = new int[]{position}; }
+        }
+        int vstep = r.video ? vFloor : 0; boolean alt = false; String lastErr = ""; T cur = null;
+        for (int attempt = 0; attempt < 9; attempt++) {
+            if (cancel.contains(key)) return;
+            thermalGuard(r.j, key);
+            T t = new T(); if (m != null) { t.title = m[0]; t.artist = m[1]; } t.status = "downloading"; r.tr.put(id, t);
+            r.j.cTitle = t.title; r.j.cArtist = t.artist;
+            String err = ""; int seenLevel = ppLevel;
+            while (true) {   // pause/resume loop for THIS attempt: yt-dlp continues from its .part file
+                if (paused) {
+                    r.j.status = "paused"; r.j.stage = "Paused - resume to continue"; r.j.speed = ""; r.j.eta = "";
+                    gateWait(key); if (cancel.contains(key)) return;
+                    r.j.status = "running"; r.j.stage = "Resuming";
                 }
-                String err = "";
-                while (true) {   // pause/resume loop for THIS track: yt-dlp continues from its .part file
-                    if (paused) {
-                        r.j.status = "paused"; r.j.stage = "Paused - resume to continue"; r.j.speed = ""; r.j.eta = "";
-                        gateWait(key); if (cancel.contains(key)) break;
-                        r.j.status = "running"; r.j.stage = "Resuming";
-                    }
-                    YoutubeDLRequest req = new YoutubeDLRequest(turl);
-                    req.addOption("--config-locations", config(r, fmt, arc, items, r.alt).getAbsolutePath());
-                    procs.add(key);
-                    try {
-                        YoutubeDL.getInstance().execute(req, key, (p, etaSec, line) -> {
-                            if (p >= 0) r.j.pct = p;
-                            if (etaSec >= 0) r.j.eta = eta(etaSec);
-                            Matcher sm = SPEED.matcher(line == null ? "" : line); if (sm.find()) r.j.speed = sm.group(1);
-                            return kotlin.Unit.INSTANCE;   // Kotlin's Unit, not void
-                        });
-                    } catch (Throwable e) {   // never let one track's failure escape the loop (and never swallow it silently)
-                        err = String.valueOf(e.getMessage()); errors(err, r);
-                        if (!pausedKeys.contains(key) && !cancel.contains(key)) log("yt-dlp failed for " + (t.title.isEmpty() ? id : t.title) + ": " + lastLine(err));
-                    } finally { procs.remove(key); }
-                    if (cancel.contains(key) || !pausedKeys.remove(key)) break;
-                }
-                if (cancel.contains(key)) break;
-                poll(r);   // publish whatever finished into Music/ or Movies/
-                T cur = r.tr.get(id);
-                if (!"done".equals(cur.status)) {   // yt-dlp may report an error for an optional step and still leave a finished file: publish it instead of losing the track
-                    File got = salvage(r.tmp, id, false, r.video);
-                    if (got != null) try {
-                        if (importFile(got, r.rel, r.video)) {
-                            if ("error".equals(cur.status) && r.j.errors > 0) r.j.errors--; cur.status = "done"; cur.msg = ""; ffOk = true;
-                            log("Recovered " + (cur.title.isEmpty() ? id : cur.title) + ": yt-dlp reported an error for an optional step, but the file was complete.");
-                        }
-                    } catch (Exception e) { log("Could not save " + got.getName() + ": " + e.getMessage()); }
-                }
-                if (!"done".equals(cur.status) && ppLevel < 3 && !err.contains("LmvLyrics") && convFail(err + " " + cur.msg)) {   // ffmpeg step failed: step down and retry THIS track
-                    ppLevel++; log("Conversion failed. yt-dlp said: " + tail(err, 500)); String why = ffLines(err); if (!why.isEmpty()) log("FFmpeg details: " + why);
-                    log("Retrying with fewer ffmpeg steps: " + LEVELS[ppLevel]);
-                    if ("error".equals(cur.status) && r.j.errors > 0) r.j.errors--; cleanLeftovers(r.tmp, id); idx--; continue;
-                }
-                if (!"done".equals(cur.status) && !r.noLyrics && err.contains("LmvLyrics")) {   // a lyrics plugin that fails to load must never block downloads
-                    r.noLyrics = true; log("The lyrics plugin failed to load; downloading without lyrics. (" + lastLine(err) + ")");
-                    if ("error".equals(cur.status) && r.j.errors > 0) r.j.errors--; cleanLeftovers(r.tmp, id); idx--; continue;
-                }
-                if (!"done".equals(cur.status) && !retried.contains(id) && needsJs(err + " " + cur.msg)) {   // one retry with the JS runtime enabled
-                    retried.add(id); if ("error".equals(cur.status) && r.j.errors > 0) r.j.errors--;
-                    log("Retrying with the JavaScript runtime enabled: " + (cur.title.isEmpty() ? id : cur.title)); cleanLeftovers(r.tmp, id); idx--; continue;
-                }
-                if (!"done".equals(cur.status)) {   // last resort: keep whatever yt-dlp left (e.g. an unconverted .webm) rather than nothing
-                    File any = salvage(r.tmp, id, true, r.video);
-                    if (any != null) try {
-                        if (importFile(any, r.rel, r.video)) {
-                            if ("error".equals(cur.status) && r.j.errors > 0) r.j.errors--; cur.status = "done"; cur.msg = ""; ffOk = true;
-                            log("Kept the unconverted file for " + (cur.title.isEmpty() ? id : cur.title) + " (" + any.getName().replaceAll(".*\\.", ".") + ").");
-                        }
-                    } catch (Exception e) { log("Could not save " + any.getName() + ": " + e.getMessage()); }
-                }
-                if (!"done".equals(cur.status) && !"error".equals(cur.status)) {   // nothing saved and no ERROR line matched: still record it
-                    cur.status = "error"; cur.msg = err.trim().isEmpty() ? "No file was produced" : friendly(lastLine(err)); r.j.errors++;
-                }
-                if ("error".equals(cur.status)) log("Skipped: " + (cur.title.isEmpty() ? id : cur.title) + " (" + cur.msg + ")");
-                cleanLeftovers(r.tmp, id);   // thumbnails and other leftovers must not pile up
+                String pid = key + "#" + pidSeq.incrementAndGet();
+                File conf = config(r, fmt, arc, items, alt, pid.replace('#', '_'), vstep);
+                YoutubeDLRequest req = new YoutubeDLRequest(turl);
+                req.addOption("--config-locations", conf.getAbsolutePath());
+                pids.computeIfAbsent(key, k -> ConcurrentHashMap.newKeySet()).add(pid);
+                try {
+                    YoutubeDL.getInstance().execute(req, pid, (p, etaSec, line) -> {
+                        if (p >= 0) r.j.pct = p;
+                        if (etaSec >= 0) r.j.eta = eta(etaSec);
+                        Matcher sm = SPEED.matcher(line == null ? "" : line); if (sm.find()) r.j.speed = sm.group(1);
+                        return kotlin.Unit.INSTANCE;   // Kotlin's Unit, not void
+                    });
+                } catch (Throwable e) {   // never let one track's failure escape (and never swallow it silently)
+                    err = String.valueOf(e.getMessage()); errors(err, r);
+                    if (!pausedKeys.contains(pid) && !cancel.contains(key)) log("yt-dlp failed for " + (t.title.isEmpty() ? id : t.title) + ": " + lastLine(err));
+                } finally { pids.get(key).remove(pid); conf.delete(); }
+                if (cancel.contains(key) || !pausedKeys.remove(pid)) break;
             }
-        } finally { halt[0] = true; poller.interrupt(); poller.join(); poll(r); }
+            if (cancel.contains(key)) return;
+            lastErr = err; poll(r);   // publish whatever finished into the chosen folder
+            cur = r.tr.get(id);
+            if (!"done".equals(cur.status)) {   // yt-dlp may report an error for an optional step and still leave a finished file: publish it instead of losing the track
+                File got = salvage(r.tmp, id, false, r.video);
+                if (got != null) try {
+                    if (importFile(got, r.rel, r.video)) {
+                        if ("error".equals(cur.status)) bumpErr(r.j, -1); cur.status = "done"; cur.msg = ""; ffOk = true;
+                        log("Recovered " + (cur.title.isEmpty() ? id : cur.title) + ": yt-dlp reported an error for an optional step, but the file was complete.");
+                    }
+                } catch (Exception e) { log("Could not save " + got.getName() + ": " + e.getMessage()); }
+            }
+            if ("done".equals(cur.status)) { finishTrack(r, id, cur, total, t0); return; }
+            String all = err + " " + cur.msg, low = all.toLowerCase(Locale.ROOT);
+            if (!r.noLyrics && err.contains("LmvLyrics")) {   // a lyrics plugin that fails to load must never block downloads
+                r.noLyrics = true; log("The lyrics plugin failed to load; downloading without lyrics. (" + lastLine(err) + ")");
+                again(r, cur, id); continue;
+            }
+            if (!jsBroken && (low.contains("js-runtimes") || low.contains("remote-components")) && (low.contains("no such option") || low.contains("unrecognized") || low.contains("invalid") || low.contains("usage"))) {
+                jsBroken = true; log("This yt-dlp does not accept the JavaScript-runtime options; continuing without them.");
+                again(r, cur, id); continue;
+            }
+            if (convFail(all) && seenLevel < 3 && (!r.video || seenLevel < 2)) {   // ffmpeg could not do a step: do fewer steps
+                stepDown(seenLevel); log("Conversion failed. yt-dlp said: " + tail(err, 500));
+                String why = ffLines(err); if (!why.isEmpty()) log("FFmpeg details: " + why);
+                log("Retrying with fewer ffmpeg steps: " + LEVELS[Math.min(3, ppLevel)]);
+                again(r, cur, id); continue;
+            }
+            if (r.video && vstep < 2 && fmtFail(all)) {   // video: merging or format selection failed: take one ready-made file instead
+                vstep++; if (convFail(all)) vFloor = Math.max(vFloor, vstep);
+                log("Video format failed (" + lastLine(err) + "). Retrying as a single ready-made file...");
+                again(r, cur, id); continue;
+            }
+            if (!retried.contains(id) && needsJs(all)) {   // one retry with the JavaScript runtime forced on
+                retried.add(id); alt = true; log("Retrying with the JavaScript runtime enabled: " + (cur.title.isEmpty() ? id : cur.title));
+                again(r, cur, id); continue;
+            }
+            break;   // nothing more to try
+        }
+        if (cur == null) return;
+        if (!"done".equals(cur.status)) {   // last resort: keep whatever yt-dlp left (e.g. an unconverted .webm) rather than nothing
+            File any = salvage(r.tmp, id, true, r.video);
+            if (any != null) try {
+                if (importFile(any, r.rel, r.video)) {
+                    if ("error".equals(cur.status)) bumpErr(r.j, -1); cur.status = "done"; cur.msg = ""; ffOk = true;
+                    log("Kept the unconverted file for " + (cur.title.isEmpty() ? id : cur.title) + " (" + any.getName().replaceAll(".*\\.", ".") + ").");
+                }
+            } catch (Exception e) { log("Could not save " + any.getName() + ": " + e.getMessage()); }
+        }
+        if (!"done".equals(cur.status) && !"error".equals(cur.status)) {   // nothing saved and no ERROR line matched: still record it
+            cur.status = "error"; cur.msg = lastErr.trim().isEmpty() ? "No file was produced" : friendly(lastLine(lastErr)); bumpErr(r.j, 1);
+        }
+        if ("error".equals(cur.status)) log("Skipped: " + (cur.title.isEmpty() ? id : cur.title) + " (" + cur.msg + ")");
+        finishTrack(r, id, cur, total, t0);
     }
 
     boolean download(String url, String base, String media, String fmt, boolean track) {

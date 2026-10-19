@@ -1,6 +1,6 @@
 {
   "name": "localmusic-and-video",
-  "version": "2.0.0",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -9,7 +9,9 @@
     "build": "vite build && node scripts/py.mjs build.py",
     "dev:android": "node scripts/android-setup.mjs && concurrently -k -n web,android \"vite --host --port 5173 --strictPort\" \"wait-on tcp:5173 && npx cap run android -l --external --port 5173\"",
     "build:apk": "vite build && node scripts/android-setup.mjs && npx cap sync android && node scripts/gradle.mjs assembleRelease",
-    "build:apk:debug": "vite build && node scripts/android-setup.mjs && npx cap sync android && node scripts/gradle.mjs assembleDebug"
+    "build:apk:debug": "vite build && node scripts/android-setup.mjs && npx cap sync android && node scripts/gradle.mjs assembleDebug",
+    "build:web": "vite build",
+    "set-donate": "node scripts/set-donate.mjs"
   },
   "dependencies": {
     "react": "^18.3.1",
@@ -23,5 +25,22 @@
     "vite": "^5.4.0",
     "wait-on": "^8.0.0",
     "@capacitor/cli": "^6.1.2"
-  }
+  },
+  "description": "Download music and video from YouTube and 1000+ sites, keep playlists in sync, add lyrics. Desktop and Android.",
+  "author": "CrispySoft",
+  "license": "MIT",
+  "homepage": "https://github.com/FavianRajendra/LocalMusic-Video",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/FavianRajendra/LocalMusic-Video.git"
+  },
+  "keywords": [
+    "yt-dlp",
+    "music",
+    "video",
+    "downloader",
+    "lyrics",
+    "android",
+    "desktop"
+  ]
 }
