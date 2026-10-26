@@ -68,7 +68,7 @@ jobs:
       - name: Build Android APK
         if: matrix.platform == 'android'
         run: |
-          npm run build:apk
+          npm run build:apk:debug
           find . -name "*.apk" -type f -exec cp {} ./${{ matrix.asset_name }} \;
 
       - name: Package macOS DMG
