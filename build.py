@@ -8,7 +8,14 @@ ORIGINAL source (AST scan, including lazy imports inside functions), add every s
 `backend` package from disk, collect the third-party packages wholesale, then prove it worked by
 running the finished app with --selftest.
 
-Usage:  python build.py [--dry-run] [--no-obfuscate] [--no-selftest]
+Usage:  python build.py [--dry-run] [--no-obfuscate] [--no-selftest] [--onefile]
+
+OBFUSCATION MODES (environment variable LMV_OBFUSCATE, default "auto"):
+  auto  try PyArmor; if it cannot do the job (the free trial stops with "out of license" on larger files), print a loud warning and
+        continue with the plain Python files, so the build never dies because of a licence
+  on    PyArmor MUST succeed (use this once you own a licence: the build fails instead of shipping unprotected code)
+  off   skip obfuscation (same as --no-obfuscate)
+To use a purchased licence in a build, set PYARMOR_REGFILE to the path of your pyarmor-regfile-*.zip: it is registered first.
 """
 import ast, importlib, importlib.util, json, os, pkgutil, re, shutil, subprocess, sys
 from pathlib import Path
@@ -16,6 +23,8 @@ from pathlib import Path
 R, B, SEP, NAME = Path(__file__).parent.resolve(), Path(__file__).parent.resolve() / "build_tmp", os.pathsep, "LocalMusicAndVideo"
 DRY, NOOBF, NOTEST = "--dry-run" in sys.argv, "--no-obfuscate" in sys.argv, "--no-selftest" in sys.argv
 ONEFILE = "--onefile" in sys.argv          # Windows: one single .exe (mac/Linux stay as .app / folder)
+MODE = "off" if NOOBF else os.environ.get("LMV_OBFUSCATE", "auto").strip().lower()
+if MODE not in ("auto", "on", "off"): sys.exit(f'LMV_OBFUSCATE must be auto, on or off (got "{MODE}")')
 # Third-party packages bundled wholesale (code + data files + native libs), per platform.
 THIRD_PARTY = ["webview", "mutagen", "certifi", "imageio_ffmpeg", "pykakasi", "pypinyin", "jaconv", "proxy_tools", "bottle", "typing_extensions"]   # imageio_ffmpeg ships the ffmpeg binary
 if sys.platform == "darwin": THIRD_PARTY += ["objc", "Foundation", "AppKit", "WebKit", "Quartz", "CoreFoundation", "PyObjCTools"]
@@ -71,6 +80,37 @@ def check_warnings(required):
            if (m := re.match(r"missing module named ([\w.]+)", l)) and m.group(1) in required]
     if bad: sys.exit("Build FAILED - PyInstaller could not find:\n  " + "\n  ".join(bad))
 
+def stage_plain(obf):
+    """No obfuscation: put main.py and backend/ into obf/ exactly as they are, so the rest of the pipeline is identical."""
+    shutil.rmtree(obf, ignore_errors=True); obf.mkdir(parents=True)
+    shutil.copy2(R / "main.py", obf / "main.py")
+    shutil.copytree(R / "backend", obf / "backend", ignore=shutil.ignore_patterns("__pycache__", "*.pyc"))
+
+def obfuscate(obf):
+    """Obfuscate main.py + backend/ into obf/. Returns the PyArmor runtime package names, or [] when the plain files were staged instead."""
+    if MODE == "off":
+        print("Obfuscation is OFF: the plain Python files go into the bundle."); stage_plain(obf); return []
+    if DRY:
+        print("$ python -m pyarmor.cli gen -O obf -r main.py backend   (dry run)"); return ["pyarmor_runtime_000000"]
+    reg = os.environ.get("PYARMOR_REGFILE")
+    if reg and Path(reg).exists():
+        r = subprocess.run([sys.executable, "-m", "pyarmor.cli", "reg", reg], capture_output=True, text=True)
+        print("PyArmor licence:", "registered" if r.returncode == 0 else "registration FAILED: " + (r.stdout + r.stderr).strip()[-300:])
+    cmd = [sys.executable, "-m", "pyarmor.cli", "gen", "-O", str(obf), "-r", str(R / "main.py"), str(R / "backend")]
+    print("$", " ".join(cmd[:7]), "...")
+    r = subprocess.run(cmd, cwd=R, capture_output=True, text=True)
+    out = ((r.stdout or "") + (r.stderr or "")).strip()
+    if r.returncode == 0 and (obf / "main.py").exists():
+        runtimes = [p.name for p in obf.glob("pyarmor_runtime_*")]
+        if runtimes: return runtimes
+        out = "PyArmor finished but produced no runtime package"
+    reason = "out of license: the free PyArmor trial refuses larger files" if "out of license" in out.lower() else f"PyArmor exited with code {r.returncode}"
+    if MODE == "on": sys.exit(f"Build FAILED (LMV_OBFUSCATE=on): {reason}\n{out[-800:]}")
+    print(f"\n!! PyArmor could not obfuscate ({reason}).\n!! Continuing WITHOUT obfuscation: the plain Python files go into the bundle.\n{out[-500:]}\n")
+    if os.environ.get("GITHUB_ACTIONS"):
+        print(f"::warning title=Not obfuscated::PyArmor: {reason}. This build contains readable Python. Register a licence (PYARMOR_REGFILE_B64 secret) or switch to Nuitka/Cython.")
+    stage_plain(obf); return []
+
 def fetch_ytdlp():
     """Download the official standalone yt-dlp binary for THIS platform so the app needs no install."""
     asset = {"darwin": "yt-dlp_macos", "win32": "yt-dlp.exe"}.get(sys.platform, "yt-dlp_linux")
@@ -103,16 +143,11 @@ def main():
     # the smoke test reads this list from inside the built app (our modules + everything our code imports)
     (B / "selftest_modules.json").write_text(json.dumps(sorted(set(local) | set(scanned) | set(STDLIB) | {"mutagen", "certifi"})))
 
-    env, paths = dict(os.environ), [R]
-    if NOOBF:
-        entry = R / "main.py"
-    else:
-        obf = B / "obf"
-        run(sys.executable, "-m", "pyarmor.cli", "gen", "-O", obf, "-r", R / "main.py", R / "backend", cwd=R)
-        entry, paths = obf / "main.py", [obf]
-        env["PYTHONPATH"] = str(obf)                      # PyInstaller's helper processes must also see ONLY the obfuscated code
-        runtimes = [p.name for p in obf.glob("pyarmor_runtime_*")] or ["pyarmor_runtime_000000"]
-        hidden += runtimes
+    obf = B / "obf"
+    runtimes = obfuscate(obf)                              # [] = the plain files were staged (mode off, or PyArmor refused)
+    env, paths, entry = dict(os.environ), [obf], obf / "main.py"
+    env["PYTHONPATH"] = str(obf)                            # PyInstaller's helper processes must also see ONLY the staged code
+    hidden += runtimes
 
     ytdlp = fetch_ytdlp()
     cmd = [sys.executable, "-m", "PyInstaller", "--noconfirm", "--clean", "--name", NAME, "--windowed",
@@ -125,8 +160,7 @@ def main():
     for h in hidden: cmd += ["--hidden-import", h]
     for p in THIRD_PARTY:
         if have(p): cmd += ["--collect-all", p]
-    if not NOOBF:
-        for rt in runtimes: cmd += ["--collect-all", rt]
+    for rt in runtimes: cmd += ["--collect-all", rt]
     if sys.platform == "darwin": cmd += ["--osx-bundle-identifier", "com.localmusic.video"]
     cmd.append(entry)
     # cwd=B keeps the UNobfuscated project folder off PyInstaller's search path, so the source can't leak in by accident
@@ -136,6 +170,7 @@ def main():
     check_warnings(required)
     (R / "dist" / "downloads").mkdir(exist_ok=True)       # user-facing folder stays outside the bundle
     print("Built:", R / "dist")
+    print("Code protection:", "OBFUSCATED with PyArmor" if runtimes else "NONE - plain Python inside the bundle (see the warning above)")
     if not NOTEST:
         print("Smoke test: launching the built app with --selftest ...")
         r = subprocess.run([str(app_binary()), "--selftest"], capture_output=True, text=True, timeout=180)

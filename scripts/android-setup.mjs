@@ -53,7 +53,8 @@ edit("android/app/build.gradle", (s) => {
   if (!s.includes("nanohttpd")) deps.push("implementation 'org.nanohttpd:nanohttpd:2.3.1'");
   if (deps.length) s = s.replace(/dependencies\s*\{/, "dependencies {\n    " + deps.join("\n    "));
   if (!s.includes("useLegacyPackaging")) s = s.replace(/android\s*\{/, "android {\n    packagingOptions { jniLibs { useLegacyPackaging = true } }");   // yt-dlp/ffmpeg ship as native libs
-  if (!s.includes("abiFilters")) s = s.replace(/defaultConfig\s*\{/, "defaultConfig {\n        ndk { abiFilters 'arm64-v8a', 'x86_64' }");             // keeps the APK a sane size
+  if (!s.includes("abiFilters")) s = s.replace(/defaultConfig\s*\{/, "defaultConfig {\n        ndk { abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' }");   // every CPU type: 32-bit phones, 64-bit phones, emulators
+  s = s.replace(/abiFilters[^\n}]*/, "abiFilters 'armeabi-v7a', 'arm64-v8a', 'x86_64' ");   // also upgrades projects created with the old list
   s = s.replace(/(youtubedl-android:(?:library|ffmpeg):)[\d.]+/g, (m, p) => p + "0.18.1");   // upgrade projects that were generated with an older version
   return s;
 });
@@ -62,6 +63,7 @@ edit("android/app/src/main/AndroidManifest.xml", (s) => {
   const perms = ["ACCESS_WIFI_STATE", "CHANGE_WIFI_MULTICAST_STATE", "READ_MEDIA_AUDIO", "READ_MEDIA_VIDEO", "FOREGROUND_SERVICE", "FOREGROUND_SERVICE_DATA_SYNC", "POST_NOTIFICATIONS", "WAKE_LOCK"]
     .filter((p) => !s.includes(`android.permission.${p}"`)).map((p) => `<uses-permission android:name="android.permission.${p}" />`);
   if (!s.includes("READ_EXTERNAL_STORAGE")) perms.push('<uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />');
+  if (!s.includes("WRITE_EXTERNAL_STORAGE")) perms.push('<uses-permission android:name="android.permission.WRITE_EXTERNAL_STORAGE" android:maxSdkVersion="28" />');   // legacy only; Android 10+ saves through MediaStore
   if (perms.length) s = s.replace("<application", perms.join("\n    ") + "\n    <application");
   if (!s.includes("usesCleartextTraffic")) s = s.replace("<application", '<application android:usesCleartextTraffic="true"');
   s = s.replace(/\s*android:extractNativeLibs="[^"]*"/g, "");   // Gradle sets this itself (useLegacyPackaging); the manifest attribute is deprecated
@@ -69,6 +71,18 @@ edit("android/app/src/main/AndroidManifest.xml", (s) => {
   if (!s.includes("screenOrientation")) s = s.replace("<activity", '<activity android:screenOrientation="portrait"');             // portrait lock
   return s;
 });
+// Debug signing with ONE fixed key kept in the repo (mobile/debug.keystore). Without it every computer and every CI run invents a new random
+// debug key, and Android refuses to install a build over the previous one ("App not installed as package conflicts with an existing package").
+// Standard Android debug credentials, not a secret. For real releases use the release key (README > Signing).
+const DK = "mobile/debug.keystore";
+if (!existsSync(DK)) {
+  const k = spawnSync("keytool", ["-genkeypair", "-keystore", DK, "-storepass", "android", "-alias", "androiddebugkey", "-keypass", "android",
+    "-keyalg", "RSA", "-keysize", "2048", "-validity", "10000", "-dname", "CN=Android Debug,O=Android,C=US"], { stdio: "pipe", shell: win });
+  if (k.status === 0) {
+    console.log(`Created ${DK}. COMMIT this file so every build (yours and GitHub's) is signed with the same key and updates install over each other.`);
+    if (process.env.GITHUB_ACTIONS) console.log("::warning title=New debug key::mobile/debug.keystore was missing and had to be generated, so this APK's signature differs from earlier builds. Commit the file to the repository.");
+  } else console.warn("keytool was not found (install a JDK). Debug builds use a random per-machine key until mobile/debug.keystore exists.");
+}
 // Version: package.json is the single source. versionCode must grow with every release or Android refuses to install the update over the old app.
 const meta = JSON.parse(readFileSync("package.json", "utf8")), [vMa, vMi, vPa] = String(meta.version).split(/[.-]/).map((n) => parseInt(n) || 0);
 edit("android/app/build.gradle", (g) => {
@@ -88,6 +102,15 @@ edit("android/app/build.gradle", (g) => {
         }
     }
     buildTypes {`);
+  }
+  if (existsSync(DK) && !g.includes("androiddebugkey")) {   // use the fixed key for debug builds
+    g = g.replace(/signingConfigs\s*\{/, `signingConfigs {
+        debug {
+            storeFile file("../../mobile/debug.keystore")
+            storePassword "android"
+            keyAlias "androiddebugkey"
+            keyPassword "android"
+        }`);
   }
   return g;
 });
