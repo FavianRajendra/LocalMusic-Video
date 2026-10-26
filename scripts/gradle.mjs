@@ -1,0 +1,11 @@
+import { spawnSync } from "child_process";
+import { readdirSync, statSync, mkdirSync, copyFileSync, existsSync } from "fs";
+import { join } from "path";
+const task = process.argv[2] || "assembleDebug", win = process.platform === "win32";
+const r = spawnSync(win ? "gradlew.bat" : "./gradlew", [task], { cwd: "android", stdio: "inherit", shell: win });
+if (r.status) process.exit(r.status);
+const out = [], root = "android/app/build/outputs/apk";
+(function walk(d) { if (!existsSync(d)) return; for (const f of readdirSync(d)) { const p = join(d, f); statSync(p).isDirectory() ? walk(p) : p.endsWith(".apk") && out.push(p); } })(root);
+mkdirSync("dist/android", { recursive: true });
+out.forEach((p) => copyFileSync(p, join("dist/android", p.split(/[\\/]/).pop())));
+console.log("APK files:", out.map((p) => "dist/android/" + p.split(/[\\/]/).pop()));

@@ -6,6 +6,6 @@ export const APP_NAME = "LocalMusic and Video";
 export const AUTHOR = "CrispySoft";
 export const VERSION = version;
 // Your Buy Me a Coffee page is  https://www.buymeacoffee.com/<BMC_USERNAME>.  While this still says YOUR_..., no donate button is shown.
-export const BMC_USERNAME = "favianrajed";
+export const BMC_USERNAME = "YOUR_BMC_USERNAME";
 export const DONATE_URL = /^YOUR_/.test(BMC_USERNAME) ? "" : `https://www.buymeacoffee.com/${BMC_USERNAME}`;
-export const REPO_URL = "https://github.com/FavianRajendra/LocalMusic-Video";
+export const REPO_URL = "https://github.com/YOUR_GITHUB_USER/LocalMusicAndVideo";

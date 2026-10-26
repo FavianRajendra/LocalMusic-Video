@@ -1,6 +1,6 @@
 {
   "name": "localmusic-and-video",
-  "version": "2.1.1",
+  "version": "2.1.0",
   "private": true,
   "type": "module",
   "scripts": {
@@ -29,10 +29,10 @@
   "description": "Download music and video from YouTube and 1000+ sites, keep playlists in sync, add lyrics. Desktop and Android.",
   "author": "CrispySoft",
   "license": "MIT",
-  "homepage": "https://github.com/FavianRajendra/LocalMusic-Video",
+  "homepage": "https://github.com/YOUR_GITHUB_USER/LocalMusicAndVideo",
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/FavianRajendra/LocalMusic-Video.git"
+    "url": "git+https://github.com/YOUR_GITHUB_USER/LocalMusicAndVideo.git"
   },
   "keywords": [
     "yt-dlp",
