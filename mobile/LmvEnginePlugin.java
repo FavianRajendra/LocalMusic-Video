@@ -14,6 +14,8 @@ import android.graphics.Bitmap;
 import android.graphics.BitmapFactory;
 import android.net.Uri;
 import android.os.Build;
+import android.os.Environment;
+import android.os.StatFs;
 import android.os.PowerManager;
 import android.media.MediaScannerConnection;
 import android.provider.DocumentsContract;
@@ -71,7 +73,7 @@ public class LmvEnginePlugin extends Plugin {
     static JSONObject J(Object... kv) { JSONObject o = new JSONObject(); try { for (int i = 0; i + 1 < kv.length; i += 2) o.put((String) kv[i], kv[i + 1]); } catch (JSONException ignored) {} return o; }
     interface Fn { void run(String key) throws Exception; }
     static class T { volatile String title = "", artist = "", status = "", msg = ""; }
-    static class Local { Uri uri; String name; boolean saf; }
+    static class Local { Uri uri; String name; boolean saf; long size; }
     static class Info {
         String title, uploader, thumb; int count; double seconds; boolean isPl;
         List<String[]> tracks = new ArrayList<>(); Map<String, String[]> meta = new HashMap<>(); Map<String, String> urls = new HashMap<>(); long at = System.currentTimeMillis(); String site = "";
@@ -315,6 +317,8 @@ public class LmvEnginePlugin extends Plugin {
             case "vault_add": return vaultAdd(a.getString(0), a.optString(1, ""), a.optString(2, "audio"), a.getString(3));
             case "vault_list": return db.all();
             case "vault_status": return vaultStatus(a.getInt(0));
+            case "vault_stats": return vaultStats();
+            case "sys_metrics": return sysMetrics();
             case "vault_remove": db.exec("DELETE FROM playlists WHERE id=?", a.getInt(0)); db.exec("DELETE FROM skips WHERE pid=?", a.getInt(0)); return null;
             case "set_remote_path": db.exec("UPDATE playlists SET remote_path=? WHERE id=?", a.getString(1), a.getInt(0)); return null;
             case "sync": return sync(a.getInt(0), false);
@@ -524,11 +528,11 @@ public class LmvEnginePlugin extends Plugin {
     Map<String, Local> local(String loc) {
         if (isSaf(loc)) return localSaf(loc);
         String rel = msRel(loc); Map<String, Local> m = new HashMap<>(); Uri c = col(rel.startsWith("Movies"));
-        try (Cursor q = getContext().getContentResolver().query(c, new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME},
+        try (Cursor q = getContext().getContentResolver().query(c, new String[]{MediaStore.MediaColumns._ID, MediaStore.MediaColumns.DISPLAY_NAME, MediaStore.MediaColumns.SIZE},
                 MediaStore.MediaColumns.RELATIVE_PATH + "=?", new String[]{rel + "/"}, null)) {
             while (q != null && q.moveToNext()) {
                 Matcher mt = ID.matcher(q.getString(1));
-                if (mt.find()) { Local l = new Local(); l.uri = ContentUris.withAppendedId(c, q.getLong(0)); l.name = q.getString(1); m.put(mt.group(1), l); }
+                if (mt.find()) { Local l = new Local(); l.uri = ContentUris.withAppendedId(c, q.getLong(0)); l.name = q.getString(1); l.size = q.getLong(2); m.put(mt.group(1), l); }
             }
         }
         return m;
@@ -538,10 +542,10 @@ public class LmvEnginePlugin extends Plugin {
         try {
             Uri tree = safTree(loc), dir = safDir(loc, false); if (dir == null) return m;
             Uri kids = DocumentsContract.buildChildDocumentsUriUsingTree(tree, DocumentsContract.getDocumentId(dir));
-            try (Cursor q = getContext().getContentResolver().query(kids, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME}, null, null, null)) {
+            try (Cursor q = getContext().getContentResolver().query(kids, new String[]{DocumentsContract.Document.COLUMN_DOCUMENT_ID, DocumentsContract.Document.COLUMN_DISPLAY_NAME, DocumentsContract.Document.COLUMN_SIZE}, null, null, null)) {
                 while (q != null && q.moveToNext()) {
                     Matcher mt = ID.matcher(q.getString(1));
-                    if (mt.find()) { Local l = new Local(); l.uri = DocumentsContract.buildDocumentUriUsingTree(tree, q.getString(0)); l.name = q.getString(1); l.saf = true; m.put(mt.group(1), l); }
+                    if (mt.find()) { Local l = new Local(); l.uri = DocumentsContract.buildDocumentUriUsingTree(tree, q.getString(0)); l.name = q.getString(1); l.size = q.getLong(2); l.saf = true; m.put(mt.group(1), l); }
                 }
             }
         } catch (Exception e) { log("Cannot read the chosen folder (" + e.getMessage() + "). Pick it again with Choose folder."); }
@@ -568,6 +572,22 @@ public class LmvEnginePlugin extends Plugin {
         int id = db.upsert(i.title, url, rel, media, fmt, fetchCover(i.thumb));
         return scanRel(url, rel).put("id", id);
     }
+    /** Numbers for the dashboard header (local files only). */
+    JSONObject vaultStats() throws JSONException {
+        JSONArray a = db.all(); long tracks = 0, bytes = 0;
+        for (int i = 0; i < a.length(); i++) for (Local l : local(a.getJSONObject(i).getString("path")).values()) { tracks++; bytes += l.size; }
+        return J("playlists", a.length(), "tracks", tracks, "bytes", bytes, "auto", autoMins());
+    }
+    /** Storage, thermal state, live yt-dlp processes and current speed for the phone's status widget. */
+    JSONObject sysMetrics() {
+        long free = 0, total = 0;
+        try { StatFs st = new StatFs(Environment.getExternalStorageDirectory().getPath()); free = st.getAvailableBytes(); total = st.getTotalBytes(); } catch (Exception ignored) {}
+        int ts = ((PowerManager) getContext().getSystemService(Context.POWER_SERVICE)).getCurrentThermalStatus();
+        String[] names = {"Normal", "Light", "Moderate", "Severe", "Critical", "Emergency", "Shutdown"};
+        int threads = 0; for (Set<String> ps : pids.values()) threads += ps.size();
+        String speed = ""; synchronized (lock) { for (Job j : jobs.values()) if ("running".equals(j.status) && !j.speed.isEmpty()) speed = j.speed; }
+        return J("free", free, "total", total, "thermal", names[Math.max(0, Math.min(ts, 6))], "throttling", !heatOff() && ts >= 2, "threads", threads, "speed", speed);
+    }
     JSONObject vaultStatus(int pid) throws Exception {
         JSONObject pl = db.one(pid); if (pl == null) return J("error", "Playlist not found");
         String url = pl.getString("url");
@@ -578,6 +598,9 @@ public class LmvEnginePlugin extends Plugin {
             String c = fetchCover(cache.get(url).thumb);
             if (!c.isEmpty()) { db.exec("UPDATE playlists SET cover=? WHERE id=? AND custom_cover=0", c, pid); r.put("cover", c); }
         }
+        Map<String, String> fl = failedOf(pid); int geo = 0;   // for the card badges: failed tracks, and how many are geo-blocked
+        for (String msg : fl.values()) if (msg.toLowerCase(Locale.ROOT).contains("geo")) geo++;
+        r.put("failed", fl.size()); r.put("geo", geo);
         return r;
     }
     void setSkips(int pid, JSONArray skip, JSONArray unskip) throws JSONException {

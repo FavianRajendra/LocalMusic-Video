@@ -32,6 +32,8 @@ class Api:
     def vault_add(self, url, dest, media, fmt): db.set_setting("dest", dest); return eng.vault_add(url, dest, media, fmt)
     def vault_list(self): return db.list_playlists()
     def vault_status(self, pid): return eng.vault_status(pid)
+    def vault_stats(self): return eng.vault_stats()
+    def sys_metrics(self): return eng.sys_metrics()
     def vault_remove(self, pid): db.remove_playlist(pid)
     def vault_cover(self, pid):
         f = dialog("file", file_types=("Images (*.png;*.jpg;*.jpeg;*.webp)",))

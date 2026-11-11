@@ -1,7 +1,7 @@
 import base64, collections, importlib.util, json, re, shutil, subprocess, sys, tempfile, threading, time, urllib.parse, urllib.request
 from pathlib import Path
 from . import db, lyrics
-from .paths import scripts_dir, resource_dir
+from .paths import base_dir, scripts_dir, resource_dir
 
 # music NEVER pulls a video stream: only the audio-only stream is requested, then remuxed/converted
 _A = lambda *a: ["-f", "bestaudio", "-x", "--audio-format", *a]
@@ -165,6 +165,22 @@ class Engine:
         pid = db.upsert_playlist(info["title"], url, folder, media, fmt, self._cover(info["thumbnail"]))
         return dict(id=pid, **self.scan(url, folder))
 
+    def vault_stats(self):
+        """Numbers for the dashboard header. Local files only (no network), so it is cheap enough to refresh often."""
+        pls = db.list_playlists(); tracks = size = 0
+        for p in pls:
+            for f in self._local(p["path"]).values():
+                tracks += 1
+                try: size += f.stat().st_size
+                except OSError: pass
+        return dict(playlists=len(pls), tracks=tracks, bytes=size, auto=int(db.get_setting("auto_sync", "0") or 0))
+
+    def sys_metrics(self):
+        try: u = shutil.disk_usage(str(base_dir())); free, total = u.free, u.total
+        except OSError: free = total = 0
+        speed = next((j["speed"] for j in self.jobs.values() if j["status"] == "running" and j.get("speed")), "")
+        return dict(free=free, total=total, thermal="n/a", throttling=False, threads=len(self.procs), speed=speed)
+
     def vault_status(self, pid):
         pl = db.get_playlist(pid)
         j = self.jobs.get(f"pl{pid}")
@@ -175,6 +191,8 @@ class Engine:
             self._cover_tried[pid] = time.time()                  # a failed cover fetch is retried at most hourly
             c = self._cover(self.cache[pl["url"]]["thumbnail"])
             if c: db.set_auto_cover(pid, c); r["cover"] = c
+        fl = self.failed.get(pid, {})                              # for the card badges: failed tracks, and how many are geo-blocked
+        r["failed"] = len(fl); r["geo"] = sum(1 for m in fl.values() if "geo" in m.lower())
         return r
 
     # ---- yt-dlp runner ----

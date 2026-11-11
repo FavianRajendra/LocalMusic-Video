@@ -30,7 +30,7 @@ Download the file for your system from the **[Releases](https://github.com/YOUR_
 | System | File | First start |
 |---|---|---|
 | macOS | `LocalMusicAndVideo-macOS.dmg` | Drag the app to Applications. It is not signed by Apple: **right-click > Open** the first time (or run `xattr -cr /Applications/LocalMusicAndVideo.app`). |
-| Windows | `LocalMusicAndVideo-Windows.exe` | Double-click. If SmartScreen warns you: **More info > Run anyway**. |
+| Windows | `LocalMusicAndVideo-Windows-Setup.exe` (installer) or `LocalMusicAndVideo-Windows-Portable.zip` (unzip anywhere, run `LocalMusicAndVideo.exe`) | SmartScreen may warn: **More info > Run anyway**. If Windows Security removes the program, see [Troubleshooting](#troubleshooting). |
 | Linux | `LocalMusicAndVideo-Linux.tar.gz` | `tar xzf LocalMusicAndVideo-Linux.tar.gz && ./LocalMusicAndVideo/LocalMusicAndVideo`. Needs the usual desktop libraries (Qt WebEngine: `libnss3`, `libxkbcommon-x11-0`, `libxcb-cursor0` ...). |
 | Android 10+ | `LocalMusicAndVideo-Android.apk` | Open the file, allow "install unknown apps" for your browser/files app, install. Allow notifications when asked (it keeps downloads alive in the background). The first start unpacks the downloader and can take up to a minute. |
 
@@ -86,6 +86,7 @@ In synced lyrics every added line repeats the timestamp of the original line.
 | **Downloads are slow** | Android: raise *Downloads at once* to 2 or 3 and keep *JavaScript runtime* on. Check the console lines `Saved ... in 9.2s (1.1MiB/s)`: if the speed is low, the site is throttling. Lyrics and conversion add a few seconds per track. |
 | **Phone gets hot** | Lower *Downloads at once* to 1, keep the heat protection on, plug in and keep the phone cool. |
 | **A track says "Geo-blocked / unavailable"** | It is skipped; the rest continues. Untick it under *Review missing* so it isn't retried. |
+| **Windows: "Unable to execute file ... CreateProcess failed; code 2"** | The installer could not find the app right after copying it. Almost always Windows Security removed the file as a false alarm (unsigned programs made with PyInstaller are often flagged). Open **Windows Security > Virus & threat protection > Protection history**, restore the item, and add the install folder as an exclusion. The portable zip is flagged less often. You can report the false alarm at <https://www.microsoft.com/wdsi/filesubmission>. |
 | **macOS "app is damaged"** | `xattr -cr /Applications/LocalMusicAndVideo.app` |
 | **Android app stuck on "Starting the download engine"** | Wait up to a minute on first start; if an error is shown, **Try again**, then check internet. |
 
@@ -124,7 +125,7 @@ The `android/` folder is generated for you; the Android code lives in `mobile/` 
 npm version patch          # 2.1.0 -> 2.1.1  (or minor / major). Edits package.json, commits, creates the tag v2.1.1
 git push --follow-tags     # the tag starts the build
 ```
-About 15-25 minutes later the **Releases** page has: `.dmg` (macOS), `.exe` (Windows), `.tar.gz` (Linux), `.apk` (Android) and automatic release notes.
+About 15-25 minutes later the **Releases** page has: `.dmg` (macOS), a Setup `.exe` and a portable `.zip` (Windows), `.tar.gz` (Linux), `.apk` (Android) and automatic release notes.
 The version number in `package.json` is also the app's version and the Android version, so updates install over older ones.
 Edit `CHANGELOG.md` before tagging.
 

@@ -1,0 +1,69 @@
+/* ---- Active Process card ---- */
+.process{padding:14px 16px;display:flex;flex-direction:column;gap:10px;overflow:hidden}
+.proc-top{display:flex;justify-content:space-between;gap:10px;align-items:center}
+.proc-main{display:flex;gap:8px;align-items:center;min-width:0}.proc-main b{white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proc-actions{display:flex;gap:8px;align-items:center;flex:none}
+.proc-dot{width:10px;height:10px;border-radius:50%;background:var(--z500);flex:none}.proc-dot.on{background:var(--ok);box-shadow:0 0 10px var(--ok);animation:pulse 1.6s infinite}
+.proc-track{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.proc-stats{display:flex;flex-wrap:wrap;align-items:center;gap:14px;color:var(--mut);font-size:12.5px;font-variant-numeric:tabular-nums}
+
+/* ---- LocalSend receiver widget ---- */
+.receiver{display:flex;align-items:center;gap:12px;padding:12px 14px;text-align:left;width:100%}
+
+/* ---- download form ---- */
+.meta{display:flex;gap:14px;align-items:center}.meta img{width:150px;aspect-ratio:16/9;object-fit:cover;border-radius:12px;box-shadow:0 12px 30px -10px rgba(0,0,0,.8)}
+.hint{margin-top:-6px}
+.fmts{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:8px}
+.fmt{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:1px;padding:10px 12px;background:rgba(0,0,0,.25);border:1px solid var(--edge)}
+.fmt span{color:var(--mut);font-size:12px}.fmt em{font-style:normal;font-size:12px;color:#86efac}
+.fmt:hover:not(:disabled){border-color:rgba(255,255,255,.25)}.fmt.on{border-color:var(--acc2);background:rgba(99,102,241,.14);box-shadow:0 0 0 1px var(--acc2)}
+
+/* ---- Vault: elevated playlist cards ---- */
+.grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(270px,1fr));gap:16px}
+.card{padding:12px;display:flex;flex-direction:column;gap:6px;border-radius:18px}
+.card h4{display:flex;gap:6px;align-items:center;flex-wrap:wrap}
+.card.fresh{border-color:rgba(34,197,94,.5);box-shadow:0 0 0 1px rgba(34,197,94,.3),0 14px 38px -14px rgba(34,197,94,.45)}
+.cover{position:relative;aspect-ratio:16/10;border-radius:12px;overflow:hidden;background:#111;margin-bottom:4px}
+.cover img{width:100%;height:100%;object-fit:cover;transition:transform .5s var(--ease)}.card:hover .cover img{transform:scale(1.06)}
+.ph{width:100%;height:100%;background:linear-gradient(135deg,#27272a,#18181b)}
+.over{position:absolute;right:8px;bottom:8px;opacity:0;background:rgba(0,0,0,.65)}.cover:hover .over{opacity:1}
+.status{position:absolute;left:8px;top:8px;padding:3px 10px;border-radius:99px;font-size:11.5px;font-weight:700;letter-spacing:.02em;background:rgba(0,0,0,.62);backdrop-filter:blur(8px);border:1px solid var(--edge)}
+.status.ok{color:#86efac;border-color:rgba(34,197,94,.5)}.status.warn{color:#fcd34d;border-color:rgba(245,158,11,.5)}
+.status.bad{color:#fca5a5;border-color:rgba(239,68,68,.55)}.status.sync{color:#93c5fd;border-color:rgba(59,130,246,.55)}.status.wait{color:var(--mut)}
+.job{display:flex;flex-direction:column;gap:6px}.stage{color:#86efac;font-weight:600}
+.now{font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.empty{text-align:center;padding:34px 10px}
+
+.tracks{max-height:240px;overflow:auto;display:flex;flex-direction:column;gap:2px;margin-top:6px;padding-right:4px}
+.trk{display:flex;gap:10px;align-items:center;justify-content:space-between;padding:6px 8px;border-radius:8px;font-size:12.5px}
+.trk:hover{background:rgba(255,255,255,.04)}.trk.bad{background:rgba(239,68,68,.08)}
+.ti{display:flex;flex-direction:column;min-width:0}.ti b{font-weight:600;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.ti em{font-style:normal;color:var(--mut);font-size:11.5px}
+.trk.pick{cursor:pointer;justify-content:flex-start}.trk.pick .ti{flex:1}.trk.pick input{width:auto;accent-color:var(--acc)}
+
+/* ---- modals ---- */
+.modal{position:fixed;inset:0;z-index:40;display:grid;place-items:center;background:rgba(0,0,0,.6);backdrop-filter:blur(6px)}
+.sheet{width:min(680px,94vw);max-height:84vh;background:var(--card-solid)}
+.mlist{overflow:auto;display:flex;flex-direction:column;gap:2px;min-height:80px}.sect{margin:10px 0 2px}
+.welcome{overflow:auto}.welcome h2{font-size:26px;line-height:1.15}
+.steps{display:flex;flex-direction:column;gap:10px}.step{display:flex;gap:14px;align-items:flex-start}.step p{margin-top:2px}
+.num{flex:none;width:30px;height:30px;border-radius:50%;display:grid;place-items:center;font-weight:700;background:linear-gradient(135deg,#6366f1,#34d399);color:#09090b}
+.lock{position:fixed;inset:0;z-index:60;display:grid;place-items:center;background:rgba(9,9,11,.84);backdrop-filter:blur(10px)}
+.lockcard{width:min(420px,92vw);background:var(--card-solid)}
+.dep{display:flex;gap:10px;align-items:center}.dep i{width:12px;height:12px;border-radius:50%;background:var(--z700)}.dep.ok i{background:var(--ok);box-shadow:0 0 8px var(--ok)}
+
+/* ---- settings ---- */
+.settings-grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(320px,1fr));gap:16px;align-items:start}
+
+/* ---- network sync ---- */
+.net{display:flex;flex-direction:column;gap:14px}.net p{margin:0}
+.peers{display:grid;grid-template-columns:repeat(auto-fill,minmax(190px,1fr));gap:10px}
+.peer{display:flex;flex-direction:column;align-items:flex-start;text-align:left;gap:3px;padding:14px}
+.peer:hover:not(:disabled){border-color:rgba(255,255,255,.25)}.peer.on{border-color:var(--acc2);box-shadow:0 0 0 1px var(--acc2),0 10px 30px -10px rgba(99,102,241,.55)}
+.peer em{font-style:normal;color:var(--mut);font-size:12px}
+.kind{align-self:flex-start;font-size:11px;font-weight:700;padding:2px 9px;border-radius:99px;background:var(--z700);color:#fff}
+.kind.mac{background:#3f3f46}.kind.win{background:#0b5cad}.kind.and{background:#15803d}.kind.ls{background:#7e22ce}
+
+/* ---- console ---- */
+.console{margin:6px 0 0;overflow:auto;background:#050506;border:1px solid var(--edge);border-radius:12px;padding:10px;font:12px/1.45 ui-monospace,Menlo,Consolas,monospace;color:#a7f3d0;white-space:pre-wrap}
+.console.static{max-height:220px}
